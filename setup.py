@@ -55,6 +55,7 @@ setup(
     long_description=__doc__,
     platforms='any',
     py_modules=['lets'],
+    zip_safe=False,  # i don't like egg
     classifiers=['Development Status :: 4 - Beta',
                  'Intended Audience :: Developers',
                  'License :: OSI Approved :: BSD License',
@@ -66,7 +67,9 @@ setup(
                  'Programming Language :: Python :: 2.7',
                  'Programming Language :: Python :: Implementation :: CPython',
                  'Topic :: Software Development'],
-    install_requires=['gevent', 'gipc'],
+    # gevent 1.0 is currently not available at PyPI
+    # install_requires=['gevent>=1.0', 'gipc'],
+    install_requires=['gipc'],
     tests_require=['pytest'],
     cmdclass={'test': PyTest},
 )

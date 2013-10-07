@@ -27,6 +27,9 @@ def test_processlet():
     jobs = [Processlet.spawn(busy_waiting) for x in range(5)]
     gevent.joinall(jobs)
     assert time.time() - t < 0.2
+    assert jobs[0].get() == 1
+    with pytest.raises(ZeroDivisionError):
+        Processlet.spawn(divide_by_zero).get()
 
 
 def test_transparentlet():

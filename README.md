@@ -1,4 +1,7 @@
-queen
-=====
+lets
+====
 
-Spawns processes or threads with gevent like interface.
+Several `gevent.Greenlet` subclasses.
+
+- `Processlet`
+- `Transparentlet`

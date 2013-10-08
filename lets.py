@@ -8,12 +8,15 @@
     :copyright: (c) 2013 by Heungsub Lee
     :license: BSD, see LICENSE for more details.
 """
+import os
+import warnings
+
 import gevent
 import gevent.pool
 import gipc
 
 
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 __all__ = ['Processlet', 'Transparentlet', 'TransparentGroup']
 
 
@@ -26,39 +29,74 @@ class Processlet(gevent.Greenlet):
     """Calls a function in child process."""
 
     function = None
+    exit_code = None
 
     def __init__(self, function=None, *args, **kwargs):
         self.function = function
-        super(Processlet, self).__init__(*args, **kwargs)
+        super(Processlet, self).__init__(None, *args, **kwargs)
 
     def _run(self, *args, **kwargs):
         """Opens pipe and starts child process to run :meth:`_run_child`. Then
         it waits for the child process done.
         """
-        with gipc.pipe() as (r_pipe, w_pipe):
-            proc = gipc.start_process(self._run_child, (w_pipe, args, kwargs))
-            method, value = r_pipe.get()
-            proc.join()
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            pipe_pair = gipc.pipe()
+        with pipe_pair as (r_pipe, w_pipe):
+            args = (w_pipe,) + args
+            proc = gipc.start_process(self._run_child, args, kwargs)
+            self.pid = proc.pid
+            method, value = RETURN, None
+            try:
+                method, value = r_pipe.get()
+            except EOFError:
+                proc.join()
+                if proc.exitcode:
+                    method, value = RAISE, SystemExit(proc.exitcode)
+            else:
+                proc.join()
+            self.exit_code = proc.exitcode
             if method == RETURN:
                 return value
             elif method == RAISE:
                 raise value
 
-    def _run_child(self, pipe, args, kwargs):
+    def _run_child(self, *args, **kwargs):
         """The target of child process. It puts result to the pipe when it
         done.
         """
+        pipe, args = args[0], args[1:]
         try:
             value = self.function(*args, **kwargs)
         except SystemExit as exc:
             if exc.code:
                 pipe.put((RAISE, exc))
+                raise
             else:
                 pipe.put((RETURN, None))
         except BaseException as exc:
             pipe.put((RAISE, exc))
         else:
             pipe.put((RETURN, value))
+
+    @property
+    def pid(self):
+        """The pid of the child process."""
+        self.join(0)
+        try:
+            return self._pid
+        except AttributeError:
+            return None
+
+    @pid.setter
+    def pid(self, pid):
+        assert self.pid is None
+        self._pid = pid
+
+    def send_signal(self, signo):
+        """Sends a signal to the child process."""
+        self.join(0)
+        os.kill(self.pid, signo)
 
 
 class Transparentlet(gevent.Greenlet):
@@ -70,6 +108,10 @@ class Transparentlet(gevent.Greenlet):
     exc_info = (None, None, None)
 
     def _report_error(self, exc_info):
+        """Same with :meth:`gevent.Greenlet._report_error` but saves exc_info
+        event a traceback object and doesn't call the parent's
+        ``handle_error``.
+        """
         self.exc_info = exc_info
         exception = exc_info[1]
         if isinstance(exception, gevent.GreenletExit):

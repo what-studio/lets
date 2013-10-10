@@ -119,6 +119,13 @@ def test_transparentlet():
     assert e.traceback[-1].name == 'divide_by_zero'
 
 
+def test_killed_transparentlet():
+    job = Transparentlet.spawn(divide_by_zero)
+    job.kill(RuntimeError)
+    with pytest.raises(RuntimeError):
+        job.get()
+
+
 def test_transparentlet_no_leak():
     ref = weakref.ref(Transparentlet.spawn(divide_by_zero))
     gc.collect()

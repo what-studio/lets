@@ -99,13 +99,22 @@ class Processlet(gevent.Greenlet):
         os.kill(self.pid, signo)
 
 
+class _FakeParent(gevent.Greenlet):
+
+    def handle_error(self, *exc_info):
+        pass
+
+
+fake_parent = _FakeParent()
+
+
 class Transparentlet(gevent.Greenlet):
     """Saves the actual exc_info when the function raises some exception. It
     doesn't print exception to stderr. Consider to use this. It saves heavy
     traceback object also.
     """
 
-    exc_info = (None, None, None)
+    exc_info = None
 
     def _report_error(self, exc_info):
         """Same with :meth:`gevent.Greenlet._report_error` but saves exc_info
@@ -113,13 +122,10 @@ class Transparentlet(gevent.Greenlet):
         ``handle_error``.
         """
         self.exc_info = exc_info
-        exception = exc_info[1]
-        if isinstance(exception, gevent.GreenletExit):
-            self._report_result(exception)
-            return
-        self._exception = exception
-        if self._links and not self._notifier:
-            self._notifier = self.parent.loop.run_callback(self._notify_links)
+        real_parent = self.parent
+        self.parent = fake_parent
+        super(Transparentlet, self)._report_error(exc_info)
+        self.parent = real_parent
 
     def get(self, block=True, timeout=None):
         """Returns the result. If the function raises an exception, it also
@@ -128,7 +134,10 @@ class Transparentlet(gevent.Greenlet):
         try:
             return super(Transparentlet, self).get(block, timeout)
         except:
-            raise self.exc_info[0], self.exc_info[1], self.exc_info[2]
+            if self.exc_info is None:
+                raise
+            else:
+                raise self.exc_info[0], self.exc_info[1], self.exc_info[2]
 
 
 class TransparentGroup(gevent.pool.Group):
@@ -141,7 +150,7 @@ class TransparentGroup(gevent.pool.Group):
             greenlets = self.greenlets.copy()
             self._empty_event.wait(timeout=timeout)
             for greenlet in greenlets:
-                if greenlet.exc_info is not None:
+                if greenlet.ready() and not greenlet.successful():
                     greenlet.get(timeout=timeout)
         else:
             self._empty_event.wait(timeout=timeout)

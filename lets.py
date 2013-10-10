@@ -16,7 +16,7 @@ import gevent.pool
 import gipc
 
 
-__version__ = '0.0.2'
+__version__ = '0.0.3'
 __all__ = ['Processlet', 'Transparentlet', 'TransparentGroup']
 
 
@@ -35,50 +35,6 @@ class Processlet(gevent.Greenlet):
         self.function = function
         super(Processlet, self).__init__(None, *args, **kwargs)
 
-    def _run(self, *args, **kwargs):
-        """Opens pipe and starts child process to run :meth:`_run_child`. Then
-        it waits for the child process done.
-        """
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            pipe_pair = gipc.pipe()
-        with pipe_pair as (r_pipe, w_pipe):
-            args = (w_pipe,) + args
-            proc = gipc.start_process(self._run_child, args, kwargs)
-            self.pid = proc.pid
-            method, value = RETURN, None
-            try:
-                method, value = r_pipe.get()
-            except EOFError:
-                proc.join()
-                if proc.exitcode:
-                    method, value = RAISE, SystemExit(proc.exitcode)
-            else:
-                proc.join()
-            self.exit_code = proc.exitcode
-            if method == RETURN:
-                return value
-            elif method == RAISE:
-                raise value
-
-    def _run_child(self, *args, **kwargs):
-        """The target of child process. It puts result to the pipe when it
-        done.
-        """
-        pipe, args = args[0], args[1:]
-        try:
-            value = self.function(*args, **kwargs)
-        except SystemExit as exc:
-            if exc.code:
-                pipe.put((RAISE, exc))
-                raise
-            else:
-                pipe.put((RETURN, None))
-        except BaseException as exc:
-            pipe.put((RAISE, exc))
-        else:
-            pipe.put((RETURN, value))
-
     @property
     def pid(self):
         """The pid of the child process."""
@@ -93,10 +49,74 @@ class Processlet(gevent.Greenlet):
         assert self.pid is None
         self._pid = pid
 
-    def send_signal(self, signo):
+    def send(self, signo, block=True, timeout=None):
         """Sends a signal to the child process."""
         self.join(0)
         os.kill(self.pid, signo)
+        if block:
+            try:
+                self.join(timeout)
+            except:  # such as SystemExit or GreenletExit
+                pass
+
+    def _run(self, *args, **kwargs):
+        """Opens pipe and starts child process to run :meth:`_run_child`. Then
+        it waits for the child process done.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            pipe_pair = gipc.pipe(duplex=True)
+        with pipe_pair as (p_pipe, c_pipe):
+            args = (c_pipe,) + args
+            proc = gipc.start_process(self._run_child, args, kwargs)
+            self.pid = proc.pid
+            method, value = RETURN, None
+            try:
+                method, value = p_pipe.get()
+            except EOFError:
+                proc.join()
+                if proc.exitcode:
+                    method, value = RAISE, SystemExit(proc.exitcode)
+            except BaseException as exc:
+                p_pipe.put((RAISE, exc))
+                method, value = p_pipe.get()
+            proc.join()
+            self.exit_code = proc.exitcode
+            if method == RETURN:
+                return value
+            elif method == RAISE:
+                raise value
+
+    def _run_child(self, *args, **kwargs):
+        """The target of child process. It puts result to the pipe when it
+        done.
+        """
+        pipe, args = args[0], args[1:]
+        gevent.spawn(self._call_and_put, pipe, *args, **kwargs).join()
+
+    def _call_and_put(self, pipe, *args, **kwargs):
+        """Calls the function and sends result to the pipe."""
+        gevent.spawn(self._get_and_kill, pipe, gevent.getcurrent())
+        try:
+            value = self.function(*args, **kwargs)
+        except SystemExit as exc:
+            if exc.code:
+                pipe.put((RAISE, exc))
+                raise
+            else:
+                pipe.put((RETURN, None))
+        except BaseException as exc:
+            pipe.put((RAISE, exc))
+            raise SystemExit(1)
+        else:
+            pipe.put((RETURN, value))
+            raise SystemExit(0)
+
+    def _get_and_kill(self, pipe, greenlet):
+        """Kills the greenlet if the parent sends an exception."""
+        method, exc = pipe.get()
+        assert method == RAISE
+        greenlet.kill(exc, block=False)
 
 
 class _FakeParent(gevent.Greenlet):

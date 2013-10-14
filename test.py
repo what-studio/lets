@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from contextlib import contextmanager
 import gc
 import os
 import random
@@ -14,12 +15,20 @@ import gipc
 import psutil
 import pytest
 
-from lets import Processlet, Transparentlet, TransparentGroup
+from lets import Processlet, ProcessPool, Transparentlet, TransparentGroup
 
 
 @pytest.fixture
 def proc():
     return psutil.Process(os.getpid())
+
+
+@contextmanager
+def killing(obj, exception=gevent.GreenletExit, block=True, timeout=None):
+    try:
+        yield obj
+    finally:
+        obj.kill(exception, block, timeout)
 
 
 def return_args(*args, **kwargs):
@@ -34,7 +43,7 @@ def busy_waiting(seconds=0.1):
     t = time.time()
     while time.time() - t < seconds:
         pass
-    return 0
+    return seconds
 
 
 def divide_by_zero():
@@ -54,6 +63,10 @@ def raise_when_killed(exception=Killed):
         raise exception
 
 
+def get_pid_anyway(*args, **kwargs):
+    return os.getpid()
+
+
 def test_processlet_spawn_child_process():
     job = Processlet.spawn(os.getppid)
     assert job.exit_code is None
@@ -69,14 +82,14 @@ def test_processlet_parellel_execution():
     delay = time.time() - t
     assert delay > 0.5
     for job in jobs:
-        assert job.get() == 0
+        assert job.get() == 0.1
     t = time.time()
     jobs = [Processlet.spawn(busy_waiting) for x in range(5)]
     gevent.joinall(jobs)
     delay = time.time() - t
     assert delay < 0.2
     for job in jobs:
-        assert job.get() == 0
+        assert job.get() == 0.1
 
 
 def test_processlet_exception():
@@ -158,6 +171,71 @@ def test_kill_processlet_group(proc):
         with pytest.raises(Killed):
             job.get()
         assert job.exit_code == 1
+
+
+def test_process_pool_recycles_child_process(proc):
+    assert len(proc.get_children()) == 0
+    pool = ProcessPool(1)
+    with killing(pool):
+        pids = set()
+        for x in xrange(10):
+            pids.add(pool.spawn(os.getpid).get())
+        assert len(pids) == 1
+        assert next(iter(pids)) != os.getpid()
+        assert len(proc.get_children()) == 1
+    assert len(proc.get_children()) == 0
+
+
+def test_process_pool_waits_worker_available(proc):
+    assert len(proc.get_children()) == 0
+    pool = ProcessPool(2)
+    with killing(pool):
+        with gevent.Timeout(0.1):
+            pool.spawn(busy_waiting, 0.5)
+            pool.spawn(busy_waiting, 0.5)
+        with pytest.raises(gevent.Timeout):
+            with gevent.Timeout(0.1):
+                pool.spawn(busy_waiting, 0.5)
+        pool.join()
+        assert len(proc.get_children()) == 2
+    assert len(proc.get_children()) == 0
+
+
+def test_process_pool_apply(proc):
+    assert len(proc.get_children()) == 0
+    pool = ProcessPool(2)
+    with killing(pool):
+        pool.apply_async(busy_waiting, (0.2,))
+        pool.apply_async(busy_waiting, (0.2,))
+        pool.apply_async(busy_waiting, (0.2,))
+        with gevent.Timeout(0.5):
+            pool.join()
+        assert len(proc.get_children()) == 2
+    assert len(proc.get_children()) == 0
+
+
+def test_process_pool_map(proc):
+    assert len(proc.get_children()) == 0
+    pool = ProcessPool(3)
+    with killing(pool):
+        assert pool.map(busy_waiting, [0.1] * 5) == [0.1] * 5
+        assert len(set(pool.map(get_pid_anyway, range(100)))) == 3
+        assert len(proc.get_children()) == 3
+    assert len(proc.get_children()) == 0
+
+
+@pytest.mark.xfail
+def test_process_pool_without_size(proc):
+    assert len(proc.get_children()) == 0
+    pool = ProcessPool()
+    with killing(pool):
+        for x in range(10):
+            pool.map(get_pid_anyway, range(x + 1))
+            assert len(proc.get_children()) == x + 1
+        for x in reversed(range(10)):
+            pool.map(get_pid_anyway, range(x + 1))
+            assert len(proc.get_children()) == 10
+    assert len(proc.get_children()) == 0
 
 
 def test_transparentlet():

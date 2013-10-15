@@ -14,5 +14,5 @@ from .processlet import Processlet, ProcessPool
 from .transparentlet import Transparentlet, TransparentGroup
 
 
-__version__ = '0.0.5'
+__version__ = '0.0.6'
 __all__ = ['Processlet', 'ProcessPool', 'Transparentlet', 'TransparentGroup']

@@ -11,6 +11,7 @@ import warnings
 
 import gevent
 import gevent.pool
+import gevent.queue
 import gipc
 
 
@@ -126,41 +127,50 @@ class ProcessPool(gevent.pool.Pool):
 
     def __init__(self, size=None):
         super(ProcessPool, self).__init__(size)
-        self._workers = []
+        self._worker_queue = gevent.queue.Queue(size)
+        self._workers = set()
 
     def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
         """Kills all workers and customer greenlets."""
-        for worker in self._workers[:]:
-            worker.kill(exception, block=block, timeout=timeout)
+        for worker in self._workers:
+            worker.kill(exception, block=False)
+        if block:
+            gevent.joinall(self._workers, timeout=timeout)
         super(ProcessPool, self).kill(exception, block, timeout)
 
     def greenlet_class(self, function, *args, **kwargs):
         """The fake greenlet class. It wraps the function with
         :meth:`_run_customer`.
         """
-        return gevent.Greenlet(
-            self._run_customer, self._semaphore.counter,
-            function, *args, **kwargs)
+        return gevent.Greenlet(self._run_customer, function, *args, **kwargs)
 
-    def _available_worker(self, counter):
+    def _available_worker(self):
         """Gets an available worker. If there's no, spawns and adds a new
         worker.
         """
-        if counter == 0:
-            self.wait_available()
-            counter = 1
-        try:
-            return self._workers[self.size - counter]
-        except IndexError:
-            worker = self._spawn_worker()
-            self._add_worker(worker)
-            return worker
+        while True:
+            try:
+                worker = self._worker_queue.get(block=False)
+            except gevent.queue.Empty:
+                # create new worker
+                worker = self._spawn_worker()
+                self._add_worker(worker)
+            else:
+                if worker not in self._workers:
+                    # the worker has been closed
+                    continue
+            # found
+            break
+        return worker
 
-    def _run_customer(self, counter, function, *args, **kwargs):
+    def _run_customer(self, function, *args, **kwargs):
         """Sends a call to an available worker and receives result."""
-        worker = self._available_worker(counter)
+        worker = self._available_worker()
         worker.pipe.put((function, args, kwargs))
-        successful, value = worker.pipe.get()
+        try:
+            successful, value = worker.pipe.get()
+        finally:
+            self._worker_queue.put(worker)
         if successful:
             return value
         else:
@@ -193,9 +203,11 @@ class ProcessPool(gevent.pool.Pool):
     def _add_worker(self, worker):
         """Registers the worker."""
         worker.rawlink(self._discard_worker)
-        self._workers.append(worker)
+        self._workers.add(worker)
+        if self.size is not None:
+            assert len(self._workers) <= self.size
 
     def _discard_worker(self, worker):
         """Unregisters the worker. Used for rawlink."""
         worker.unlink(self._discard_worker)
-        self._workers.remove(worker)
+        self._workers.discard(worker)

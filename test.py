@@ -70,6 +70,9 @@ def raise_when_killed(exception=Killed):
 
 
 def get_pid_anyway(*args, **kwargs):
+    # ProcessGroup.map may don't spawn enough processlets when calling too fast
+    # function.
+    gevent.sleep(0.1)
     return os.getpid()
 
 
@@ -192,6 +195,21 @@ def test_process_pool_recycles_child_process(proc):
     assert len(proc.get_children()) == 0
 
 
+def test_process_pool_size_limited(proc):
+    assert len(proc.get_children()) == 0
+    pool = ProcessPool(2)
+    with killing(pool):
+        pool.spawn(busy_waiting, 0.1)
+        pool.spawn(busy_waiting, 0.2)
+        pool.spawn(busy_waiting, 0.1)
+        pool.spawn(busy_waiting, 0.2)
+        pool.spawn(busy_waiting, 0.1)
+        pool.join(0)
+        assert len(proc.get_children()) == 2
+        pool.join()
+    assert len(proc.get_children()) == 0
+
+
 def test_process_pool_waits_worker_available(proc):
     assert len(proc.get_children()) == 0
     pool = ProcessPool(2)
@@ -225,22 +243,23 @@ def test_process_pool_map(proc):
     pool = ProcessPool(3)
     with killing(pool):
         assert pool.map(busy_waiting, [0.1] * 5) == [0.1] * 5
-        assert len(set(pool.map(get_pid_anyway, range(100)))) == 3
+        assert len(set(pool.map(get_pid_anyway, range(10)))) == 3
         assert len(proc.get_children()) == 3
     assert len(proc.get_children()) == 0
 
 
-@pytest.mark.xfail
 def test_process_pool_without_size(proc):
     assert len(proc.get_children()) == 0
     pool = ProcessPool()
     with killing(pool):
-        for x in range(10):
-            pool.map(get_pid_anyway, range(x + 1))
+        for x in range(5):
+            pids = pool.map(get_pid_anyway, range(x + 1))
+            assert len(pids) == x + 1
             assert len(proc.get_children()) == x + 1
-        for x in reversed(range(10)):
-            pool.map(get_pid_anyway, range(x + 1))
-            assert len(proc.get_children()) == 10
+        for x in reversed(range(5)):
+            pids = pool.map(get_pid_anyway, range(x + 1))
+            assert len(pids) == x + 1
+            assert len(proc.get_children()) == 5
     assert len(proc.get_children()) == 0
 
 

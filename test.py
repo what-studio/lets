@@ -16,7 +16,7 @@ import gipc
 import psutil
 import pytest
 
-from lets import Processlet, ProcessPool, Transparentlet, TransparentGroup
+from lets import Processlet, ProcessExit, ProcessPool, Transparentlet, TransparentGroup
 from lets.transparentlet import quiet_hub
 
 
@@ -115,15 +115,21 @@ def test_processlet_exception():
     assert job.exit_code == 1
 
 
-def test_processlet_exit():
+def test_processlet_system_exit():
+    # SystemExit kills all independent gevent waitings
+    job = gevent.spawn(sys.exit)
+    with pytest.raises(SystemExit):
+        gevent.spawn(gevent.sleep, 0.1).join()
+    # Processlet replaces SystemExit with ProcessExit
     job = Processlet.spawn(kill_itself)
-    with pytest.raises(SystemExit) as e:
+    gevent.spawn(gevent.sleep, 0.1).join()
+    with pytest.raises(ProcessExit) as e:
         job.get()
     assert e.value.code == -signal.SIGKILL
     assert job.exit_code == -signal.SIGKILL
     job = Processlet.spawn(busy_waiting, 10)
     job.send(signal.SIGTERM)
-    with pytest.raises(SystemExit) as e:
+    with pytest.raises(ProcessExit) as e:
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM

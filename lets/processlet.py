@@ -15,7 +15,17 @@ import gevent.queue
 import gipc
 
 
-__all__ = ['Processlet', 'ProcessPool']
+__all__ = ['ProcessExit', 'Processlet', 'ProcessPool']
+
+
+class ProcessExit(BaseException):
+    """Originally, :exc:`SystemExit` kills all independent gevent waitings.
+    To prevent killing the current process, :class:`Processlet` replaces
+    :exc:`SystemExit` from child process with this exception.
+    """
+
+    def __init__(self, code):
+        self.code = code
 
 
 def call_and_put(function, args, kwargs, pipe, exit=False):
@@ -102,10 +112,13 @@ class Processlet(gevent.Greenlet):
             except BaseException as exc:
                 p_pipe.put((False, exc))
                 successful, value = p_pipe.get()
-            proc.join()
+            proc.join()  # wait until the child process exits
             self.exit_code = proc.exitcode
             if successful:
                 return value
+            # failure
+            if isinstance(value, SystemExit):
+                raise ProcessExit(value.code)
             else:
                 raise value
 

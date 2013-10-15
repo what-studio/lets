@@ -10,9 +10,10 @@
 """
 from __future__ import absolute_import
 
-from .processlet import Processlet, ProcessPool
+from .processlet import Processlet, ProcessExit, ProcessPool
 from .transparentlet import Transparentlet, TransparentGroup
 
 
-__version__ = '0.0.6'
-__all__ = ['Processlet', 'ProcessPool', 'Transparentlet', 'TransparentGroup']
+__version__ = '0.0.7'
+__all__ = ['Processlet', 'ProcessExit', 'ProcessPool',
+           'Transparentlet', 'TransparentGroup']

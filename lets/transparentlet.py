@@ -12,25 +12,24 @@ import gevent
 import gevent.pool
 
 
-__all__ = ['Transparentlet', 'TransparentGroup', 'quiet_hub']
+__all__ = ['Transparentlet', 'TransparentGroup', 'indifferent_hub']
 
 
 noop = lambda *args, **kwargs: None
 
 
 @contextmanager
-def quiet_hub(hub=None):
-    """The gevent hub prints exception from greenlet to stderr. This context
-    makes the hub be quiet.
+def indifferent_hub(hub=None):
+    """The gevent hub prints greenlet exception to stderr and handles system
+    errors. This context makes the hub do not interest in greenlet errors.
     """
     if hub is None:
         hub = gevent.hub.get_hub()
-    not_error = hub.NOT_ERROR
-    hub.NOT_ERROR = BaseException
+    hub.handle_error, handle_error = noop, hub.handle_error
     try:
         yield
     finally:
-        hub.NOT_ERROR = not_error
+        hub.handle_error = handle_error
 
 
 class Transparentlet(gevent.Greenlet):
@@ -47,7 +46,7 @@ class Transparentlet(gevent.Greenlet):
         ``handle_error``.
         """
         self.exc_info = exc_info
-        with quiet_hub():
+        with indifferent_hub(self.parent):
             super(Transparentlet, self)._report_error(exc_info)
 
     def get(self, block=True, timeout=None):

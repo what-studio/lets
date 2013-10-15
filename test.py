@@ -17,7 +17,7 @@ import psutil
 import pytest
 
 from lets import Processlet, ProcessExit, ProcessPool, Transparentlet, TransparentGroup
-from lets.transparentlet import quiet_hub
+from lets.transparentlet import indifferent_hub
 
 
 def pytest_generate_tests(metafunc):
@@ -113,33 +113,6 @@ def test_processlet_exception():
     with pytest.raises(ZeroDivisionError):
         job.get()
     assert job.exit_code == 1
-
-
-def test_processlet_system_exit():
-    # SystemExit kills all independent gevent waitings
-    job = gevent.spawn(sys.exit)
-    with pytest.raises(SystemExit):
-        gevent.spawn(gevent.sleep, 0.1).join()
-    # Processlet replaces SystemExit with ProcessExit
-    job = Processlet.spawn(kill_itself)
-    gevent.spawn(gevent.sleep, 0.1).join()
-    with pytest.raises(ProcessExit) as e:
-        job.get()
-    assert e.value.code == -signal.SIGKILL
-    assert job.exit_code == -signal.SIGKILL
-    job = Processlet.spawn(busy_waiting, 10)
-    job.send(signal.SIGTERM)
-    with pytest.raises(ProcessExit) as e:
-        job.get()
-    assert e.value.code == -signal.SIGTERM
-    assert job.exit_code == -signal.SIGTERM
-    job = Processlet.spawn(raise_when_killed, SystemExit(42))
-    job.join(0)
-    job.kill()
-    with pytest.raises(ProcessExit) as e:
-        job.get()
-    assert e.value.code == 42
-    assert job.exit_code == 42
 
 
 def test_processlet_args():
@@ -362,20 +335,6 @@ def test_transparent_group():
     assert e.traceback[-1].name == 'divide_by_zero'
 
 
-def test_transparent_group_ends_immediately_when_systemexit_occured():
-    def f1():
-        raise SystemExit(42)
-    def f2():
-        gevent.sleep(0.5)
-    group = TransparentGroup()
-    group.spawn(f1)
-    group.spawn(f2)
-    with gevent.Timeout(0.3):
-        with pytest.raises(SystemExit) as e:
-            group.join()
-    assert e.value.code == 42
-
-
 def test_greenlet_exit(group):
     g = group.spawn(gevent.sleep, 1)
     g.kill()
@@ -414,19 +373,56 @@ def test_task_kills_group(proc, group):
     assert isinstance(g3.exception, RuntimeError)
 
 
-def test_quiet_hub(capsys):
+def test_indifferent_hub(capsys):
     # print exception
     gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
     assert 'ZeroDivisionError' in err
     # don't print
-    with quiet_hub():
+    with indifferent_hub():
         gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
     assert not err
     # don't print also
     gevent.spawn(divide_by_zero)
-    with quiet_hub():
+    with indifferent_hub():
         gevent.wait()
     out, err = capsys.readouterr()
     assert not err
+
+
+def test_greenlet_system_exit():
+    job = gevent.spawn(sys.exit)
+    with pytest.raises(SystemExit):
+        gevent.spawn(gevent.sleep, 0.1).join()
+
+
+def test_processlet_system_exit():
+    job = Processlet.spawn(kill_itself)
+    gevent.spawn(gevent.sleep, 0.1).join()
+    with pytest.raises(ProcessExit) as e:
+        job.get()
+    assert e.value.code == -signal.SIGKILL
+    assert job.exit_code == -signal.SIGKILL
+    job = Processlet.spawn(busy_waiting, 10)
+    job.send(signal.SIGTERM)
+    with pytest.raises(ProcessExit) as e:
+        job.get()
+    assert e.value.code == -signal.SIGTERM
+    assert job.exit_code == -signal.SIGTERM
+    job = Processlet.spawn(raise_when_killed, SystemExit(42))
+    job.join(0)
+    job.kill()
+    with pytest.raises(ProcessExit) as e:
+        job.get()
+    assert e.value.code == 42
+    assert job.exit_code == 42
+
+
+def test_transparentlet_system_exit():
+    job = Transparentlet.spawn(sys.exit)
+    gevent.spawn(gevent.sleep, 0.1).join()
+    job.join()
+    assert job.ready()
+    assert not job.successful()
+    assert isinstance(job.exception, SystemExit)

@@ -9,6 +9,7 @@ import time
 import weakref
 
 import gevent
+from gevent import GreenletExit
 from gevent.event import Event
 from gevent.pool import Group
 import gipc
@@ -36,7 +37,7 @@ def proc():
 
 
 @contextmanager
-def killing(obj, exception=gevent.GreenletExit, block=True, timeout=None):
+def killing(obj, exception=GreenletExit, block=True, timeout=None):
     try:
         yield obj
     finally:
@@ -71,7 +72,7 @@ def raise_when_killed(exception=Killed):
     try:
         while True:
             gevent.sleep(0)
-    except gevent.GreenletExit:
+    except GreenletExit:
         raise exception
 
 
@@ -335,8 +336,15 @@ def test_transparent_group_ends_immediately_when_systemexit_occured():
     assert e.value.code == 42
 
 
+def test_greenlet_exit(group):
+    g = group.spawn(gevent.sleep, 1)
+    g.kill()
+    assert g.ready()
+    assert g.successful()
+    assert isinstance(g.get(), GreenletExit)
+
+
 def test_task_kills_group(proc, group):
-    from gevent import GreenletExit
     def f1():
         gevent.sleep(0.1)
         raise RuntimeError

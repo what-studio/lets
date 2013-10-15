@@ -57,22 +57,21 @@ class ProcessExit(BaseException):
         self.code = code
 
 
-def call_and_put(function, args, kwargs, pipe, exit=False):
+def call_and_put(function, args, kwargs, pipe):
     """Calls the function and sends result to the pipe."""
     try:
         value = function(*args, **kwargs)
+    except gevent.GreenletExit as exc:
+        pipe.put((False, exc))
     except SystemExit as exc:
         pipe.put((False, exc))
-        if exit:
-            raise
+        raise
     except BaseException as exc:
         pipe.put((False, exc))
-        if exit:
-            raise SystemExit(1)
+        raise SystemExit(1)
     else:
         pipe.put((True, value))
-    if exit:
-        raise SystemExit(0)
+    raise SystemExit(0)
 
 
 def get_and_kill(pipe, greenlet):
@@ -115,10 +114,7 @@ class Processlet(gevent.Greenlet):
         self.join(0)
         os.kill(self.pid, signo)
         if block:
-            try:
-                self.join(timeout)
-            except:  # such as SystemExit or GreenletExit
-                pass
+            self.join(timeout)
 
     def _run(self, *args, **kwargs):
         """Opens pipe and starts child process to run :meth:`_run_child`. Then
@@ -157,7 +153,7 @@ class Processlet(gevent.Greenlet):
         """
         pipe, args = args[0], args[1:]
         greenlet = gevent.spawn(
-            call_and_put, self.function, args, kwargs, pipe, exit=True)
+            call_and_put, self.function, args, kwargs, pipe)
         gevent.spawn(get_and_kill, pipe, greenlet)
         greenlet.join()
 
@@ -225,7 +221,10 @@ class ProcessPool(gevent.pool.Pool):
                 function, args, kwargs = pipe.get()
             except EOFError:
                 break
-            call_and_put(function, args, kwargs, pipe)
+            try:
+                call_and_put(function, args, kwargs, pipe)
+            except SystemExit:
+                pass
 
     def _spawn_worker(self):
         """Spanws a new worker."""

@@ -57,7 +57,8 @@ class Transparentlet(gevent.Greenlet):
         try:
             return super(Transparentlet, self).get(block, timeout)
         except:
-            if self.exc_info is None:
+            if self.exc_info is None or self.exc_info[2] is None:
+                # killed by outside
                 raise
             else:
                 raise self.exc_info[0], self.exc_info[1], self.exc_info[2]

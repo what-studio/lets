@@ -133,6 +133,13 @@ def test_processlet_system_exit():
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM
+    job = Processlet.spawn(raise_when_killed, SystemExit(42))
+    job.join(0)
+    job.kill()
+    with pytest.raises(ProcessExit) as e:
+        job.get()
+    assert e.value.code == 42
+    assert job.exit_code == 42
 
 
 def test_processlet_args():
@@ -276,6 +283,30 @@ def test_process_pool_without_size(proc):
     assert len(proc.get_children()) == 0
 
 
+def test_process_pool_respawns_worker(proc):
+    assert len(proc.get_children()) == 0
+    pool = ProcessPool(2)
+    with killing(pool):
+        pids1 = pool.map(get_pid_anyway, range(2))
+        pool.kill()
+        pids2 = pool.map(get_pid_anyway, range(2))
+        assert not set(pids1).intersection(pids2)
+    assert len(proc.get_children()) == 0
+
+
+def test_process_pool_raises(proc):
+    assert len(proc.get_children()) == 0
+    pool = ProcessPool(1)
+    with killing(pool):
+        pid1 = pool.spawn(os.getpid).get()
+        g = pool.spawn(divide_by_zero)
+        with pytest.raises(ZeroDivisionError):
+            g.get()
+        pid2 = pool.spawn(os.getpid).get()
+        assert pid1 == pid2
+    assert len(proc.get_children()) == 0
+
+
 def test_transparentlet():
     job = Transparentlet.spawn(divide_by_zero)
     with pytest.raises(ZeroDivisionError) as e:
@@ -291,7 +322,10 @@ def test_transparentlet_doesnt_print_exception(capsys):
     assert not err
 
 
-def test_killed_transparentlet():
+def test_kill_transparentlet():
+    job = Transparentlet.spawn(divide_by_zero)
+    job.kill()
+    assert isinstance(job.get(), GreenletExit)
     job = Transparentlet.spawn(divide_by_zero)
     job.kill(RuntimeError)
     with pytest.raises(RuntimeError):

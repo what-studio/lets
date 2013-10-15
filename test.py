@@ -16,6 +16,7 @@ import psutil
 import pytest
 
 from lets import Processlet, ProcessPool, Transparentlet, TransparentGroup
+from lets.transparentlet import quiet_hub
 
 
 def pytest_generate_tests(metafunc):
@@ -363,3 +364,21 @@ def test_task_kills_group(proc, group):
     assert isinstance(g1.exception, RuntimeError)
     assert isinstance(g2.exception, Killed)
     assert isinstance(g3.exception, RuntimeError)
+
+
+def test_quiet_hub(capsys):
+    # print exception
+    gevent.spawn(divide_by_zero).join()
+    out, err = capsys.readouterr()
+    assert 'ZeroDivisionError' in err
+    # don't print
+    with quiet_hub():
+        gevent.spawn(divide_by_zero).join()
+    out, err = capsys.readouterr()
+    assert not err
+    # don't print also
+    gevent.spawn(divide_by_zero)
+    with quiet_hub():
+        gevent.wait()
+    out, err = capsys.readouterr()
+    assert not err

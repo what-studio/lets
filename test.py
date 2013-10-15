@@ -18,6 +18,17 @@ import pytest
 from lets import Processlet, ProcessPool, Transparentlet, TransparentGroup
 
 
+def pytest_generate_tests(metafunc):
+    if 'group' in metafunc.fixturenames:
+        greenlet_group = Group()
+        process_group = Group()
+        process_group.greenlet_class = Processlet
+        transparent_group = TransparentGroup()
+        groups = [greenlet_group, process_group, transparent_group]
+        ids = ['greenlet_group', 'process_group', 'transparent_group']
+        metafunc.parametrize('group', groups, ids=ids)
+
+
 @pytest.fixture
 def proc():
     return psutil.Process(os.getpid())
@@ -29,12 +40,6 @@ def killing(obj, exception=gevent.GreenletExit, block=True, timeout=None):
         yield obj
     finally:
         obj.kill(exception, block, timeout)
-
-
-class E1(Exception): pass
-class E2(Exception): pass
-class E3(Exception): pass
-class E4(Exception): pass
 
 
 def return_args(*args, **kwargs):
@@ -329,37 +334,32 @@ def test_transparent_group_ends_immediately_when_systemexit_occured():
     assert e.value.code == 42
 
 
-def test_task_kills_group(proc):
+def test_task_kills_group(proc, group):
+    from gevent import GreenletExit
     def f1():
         gevent.sleep(0.1)
-        raise E1
+        raise RuntimeError
     def f2():
         try:
             gevent.sleep(10)
-        except E1:
-            raise E2
+        except RuntimeError:
+            raise Killed
     def f3():
         gevent.sleep(10)
-    # all groups should have same behavior
-    default_group = Group()
-    process_group = Group()
-    process_group.greenlet_class = Processlet
-    transparent_group = TransparentGroup()
-    for group in [default_group, process_group, transparent_group]:
-        g1 = group.spawn(f1)
-        g1.link_exception(lambda g: group.kill(g.exception))
-        g2 = group.spawn(f2)
-        g3 = group.spawn(f3)
-        with pytest.raises((E1, E2)):
-            group.join(raise_error=True)
-        assert len(proc.get_children()) == 0
-        assert not group.greenlets
-        assert g1.ready()
-        assert g2.ready()
-        assert g3.ready()
-        assert not g1.successful()
-        assert not g2.successful()
-        assert not g3.successful()
-        assert isinstance(g1.exception, E1)
-        assert isinstance(g2.exception, E2)
-        assert isinstance(g3.exception, E1)
+    g1 = group.spawn(f1)
+    g1.link_exception(lambda g: group.kill(g.exception))
+    g2 = group.spawn(f2)
+    g3 = group.spawn(f3)
+    with pytest.raises((RuntimeError, Killed)):
+        group.join(raise_error=True)
+    assert len(proc.get_children()) == 0
+    assert not group.greenlets
+    assert g1.ready()
+    assert g2.ready()
+    assert g3.ready()
+    assert not g1.successful()
+    assert not g2.successful()
+    assert not g3.successful()
+    assert isinstance(g1.exception, RuntimeError)
+    assert isinstance(g2.exception, Killed)
+    assert isinstance(g3.exception, RuntimeError)

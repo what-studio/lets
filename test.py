@@ -31,6 +31,12 @@ def killing(obj, exception=gevent.GreenletExit, block=True, timeout=None):
         obj.kill(exception, block, timeout)
 
 
+class E1(Exception): pass
+class E2(Exception): pass
+class E3(Exception): pass
+class E4(Exception): pass
+
+
 def return_args(*args, **kwargs):
     return args, kwargs
 
@@ -173,22 +179,6 @@ def test_kill_processlet_group(proc):
         assert job.exit_code == 1
 
 
-def test_processlet_kills_group(proc):
-    group = Group()
-    group.greenlet_class = Processlet
-    def kill_group(greenlet):
-        group.kill()
-    group.spawn(gevent.sleep, 1)
-    group.spawn(gevent.sleep, 1)
-    group.spawn(divide_by_zero).link_exception(kill_group)
-    group.join(0)
-    assert len(group) == 3
-    assert len(proc.get_children()) == 3
-    group.join(0.5)
-    assert len(group) == 0
-    assert len(proc.get_children()) == 0
-
-
 def test_process_pool_recycles_child_process(proc):
     assert len(proc.get_children()) == 0
     pool = ProcessPool(1)
@@ -318,3 +308,39 @@ def test_transparent_group_ends_immediately_when_systemexit_occured():
         with pytest.raises(SystemExit) as e:
             group.join()
     assert e.value.code == 42
+
+
+def test_task_kills_group(proc):
+    def f1():
+        gevent.sleep(0.1)
+        raise E1
+    def f2():
+        try:
+            gevent.sleep(10)
+        except E1:
+            raise E2
+    def f3():
+        gevent.sleep(10)
+    # all groups should have same behavior
+    default_group = Group()
+    process_group = Group()
+    process_group.greenlet_class = Processlet
+    transparent_group = TransparentGroup()
+    for group in [default_group, process_group, transparent_group]:
+        g1 = group.spawn(f1)
+        g1.link_exception(lambda g: group.kill(g.exception))
+        g2 = group.spawn(f2)
+        g3 = group.spawn(f3)
+        with pytest.raises((E1, E2)):
+            group.join(raise_error=True)
+        assert len(proc.get_children()) == 0
+        assert not group.greenlets
+        assert g1.ready()
+        assert g2.ready()
+        assert g3.ready()
+        assert not g1.successful()
+        assert not g2.successful()
+        assert not g3.successful()
+        assert isinstance(g1.exception, E1)
+        assert isinstance(g2.exception, E2)
+        assert isinstance(g3.exception, E1)

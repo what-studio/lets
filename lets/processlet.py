@@ -22,12 +22,9 @@ def call_and_put(function, args, kwargs, pipe, exit=False):
     try:
         value = function(*args, **kwargs)
     except SystemExit as exc:
-        if exc.code:
-            pipe.put((False, exc))
-            if exit:
-                raise
-        else:
-            pipe.put((True, None))
+        pipe.put((False, exc))
+        if exit:
+            raise
     except BaseException as exc:
         pipe.put((False, exc))
         if exit:

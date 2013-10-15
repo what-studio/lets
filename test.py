@@ -173,6 +173,22 @@ def test_kill_processlet_group(proc):
         assert job.exit_code == 1
 
 
+def test_processlet_kills_group(proc):
+    group = Group()
+    group.greenlet_class = Processlet
+    def kill_group(greenlet):
+        group.kill()
+    group.spawn(gevent.sleep, 1)
+    group.spawn(gevent.sleep, 1)
+    group.spawn(divide_by_zero).link_exception(kill_group)
+    group.join(0)
+    assert len(group) == 3
+    assert len(proc.get_children()) == 3
+    group.join(0.5)
+    assert len(group) == 0
+    assert len(proc.get_children()) == 0
+
+
 def test_process_pool_recycles_child_process(proc):
     assert len(proc.get_children()) == 0
     pool = ProcessPool(1)
@@ -245,6 +261,14 @@ def test_transparentlet():
     assert e.traceback[-1].name == 'divide_by_zero'
 
 
+def test_transparentlet_doesnt_print_exception(capsys):
+    job = Transparentlet.spawn(divide_by_zero)
+    job.join()
+    out, err = capsys.readouterr()
+    assert not out
+    assert not err
+
+
 def test_killed_transparentlet():
     job = Transparentlet.spawn(divide_by_zero)
     job.kill(RuntimeError)
@@ -280,3 +304,17 @@ def test_transparent_group():
     with pytest.raises(ZeroDivisionError) as e:
         group.join(raise_error=True)
     assert e.traceback[-1].name == 'divide_by_zero'
+
+
+def test_transparent_group_ends_immediately_when_systemexit_occured():
+    def f1():
+        raise SystemExit(42)
+    def f2():
+        gevent.sleep(0.5)
+    group = TransparentGroup()
+    group.spawn(f1)
+    group.spawn(f2)
+    with gevent.Timeout(0.3):
+        with pytest.raises(SystemExit) as e:
+            group.join()
+    assert e.value.code == 42

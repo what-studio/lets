@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-    lets
-    ~~~~
-
-    Several :class:`gevent.Greenlet` subclasses.
+    lets.processlet
+    ~~~~~~~~~~~~~~~
 
     :copyright: (c) 2013 by Heungsub Lee
     :license: BSD, see LICENSE for more details.
 """
-import itertools
 import os
 import warnings
 
@@ -17,13 +14,7 @@ import gevent.pool
 import gipc
 
 
-__version__ = '0.0.4'
-__all__ = ['Processlet', 'Transparentlet', 'TransparentGroup']
-
-
-# methods used for child to parent communication on :class:`Processlet`.
-RETURN = 0
-RAISE = 1
+__all__ = ['Processlet', 'ProcessPool']
 
 
 def call_and_put(function, args, kwargs, pipe, exit=False):
@@ -32,17 +23,17 @@ def call_and_put(function, args, kwargs, pipe, exit=False):
         value = function(*args, **kwargs)
     except SystemExit as exc:
         if exc.code:
-            pipe.put((RAISE, exc))
+            pipe.put((False, exc))
             if exit:
                 raise
         else:
-            pipe.put((RETURN, None))
+            pipe.put((True, None))
     except BaseException as exc:
-        pipe.put((RAISE, exc))
+        pipe.put((False, exc))
         if exit:
             raise SystemExit(1)
     else:
-        pipe.put((RETURN, value))
+        pipe.put((True, value))
     if exit:
         raise SystemExit(0)
 
@@ -50,11 +41,11 @@ def call_and_put(function, args, kwargs, pipe, exit=False):
 def get_and_kill(pipe, greenlet):
     """Kills the greenlet if the parent sends an exception."""
     try:
-        method, exc = pipe.get()
+        successful, exc = pipe.get()
     except EOFError as exc:
         pass
     else:
-        assert method == RAISE
+        assert not successful
     greenlet.kill(exc, block=False)
 
 
@@ -103,21 +94,21 @@ class Processlet(gevent.Greenlet):
             args = (c_pipe,) + args
             proc = gipc.start_process(self._run_child, args, kwargs)
             self.pid = proc.pid
-            method, value = RETURN, None
+            successful, value = True, None
             try:
-                method, value = p_pipe.get()
+                successful, value = p_pipe.get()
             except EOFError:
                 proc.join()
                 if proc.exitcode:
-                    method, value = RAISE, SystemExit(proc.exitcode)
+                    successful, value = False, SystemExit(proc.exitcode)
             except BaseException as exc:
-                p_pipe.put((RAISE, exc))
-                method, value = p_pipe.get()
+                p_pipe.put((False, exc))
+                successful, value = p_pipe.get()
             proc.join()
             self.exit_code = proc.exitcode
-            if method == RETURN:
+            if successful:
                 return value
-            elif method == RAISE:
+            else:
                 raise value
 
     def _run_child(self, *args, **kwargs):
@@ -132,51 +123,32 @@ class Processlet(gevent.Greenlet):
 
 
 class ProcessPool(gevent.pool.Pool):
+    """Recyclable worker :class:`Processlet` pool. It should be finalized with
+    :meth:`kill` to close all child processes.
+    """
 
     def __init__(self, size=None):
         super(ProcessPool, self).__init__(size)
         self._workers = []
 
     def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
+        """Kills all workers and customer greenlets."""
         for worker in self._workers[:]:
             worker.kill(exception, block=block, timeout=timeout)
         super(ProcessPool, self).kill(exception, block, timeout)
 
     def greenlet_class(self, function, *args, **kwargs):
-        return gevent.Greenlet(self._run_customer, self._semaphore.counter,
-                               function, *args, **kwargs)
-
-    def _run_customer(self, counter, function, *args, **kwargs):
-        worker = self._available_worker(counter)
-        worker.pipe.put((function, args, kwargs))
-        method, value = worker.pipe.get()
-        if method == RETURN:
-            return value
-        elif method == RAISE:
-            raise value
-
-    def _spawn_worker(self):
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            p_pipe, c_pipe = gipc.pipe(duplex=True)
-        worker = Processlet.spawn(self._run_worker, c_pipe)
-        worker.pipe = p_pipe
-        worker.rawlink(self._close_worker_pipe)
-        return worker
-
-    def _close_worker_pipe(self, worker):
-        worker.unlink(self._close_worker_pipe)
-        worker.pipe.close()
-
-    def _add_worker(self, worker):
-        worker.rawlink(self._discard_worker)
-        self._workers.append(worker)
-
-    def _discard_worker(self, worker):
-        worker.unlink(self._discard_worker)
-        self._workers.remove(worker)
+        """The fake greenlet class. It wraps the function with
+        :meth:`_run_customer`.
+        """
+        return gevent.Greenlet(
+            self._run_customer, self._semaphore.counter,
+            function, *args, **kwargs)
 
     def _available_worker(self, counter):
+        """Gets an available worker. If there's no, spawns and adds a new
+        worker.
+        """
         if counter == 0:
             self.wait_available()
             counter = 1
@@ -187,7 +159,18 @@ class ProcessPool(gevent.pool.Pool):
             self._add_worker(worker)
             return worker
 
+    def _run_customer(self, counter, function, *args, **kwargs):
+        """Sends a call to an available worker and receives result."""
+        worker = self._available_worker(counter)
+        worker.pipe.put((function, args, kwargs))
+        successful, value = worker.pipe.get()
+        if successful:
+            return value
+        else:
+            raise value
+
     def _run_worker(self, pipe):
+        """The main loop of worker."""
         while True:
             try:
                 function, args, kwargs = pipe.get()
@@ -195,52 +178,27 @@ class ProcessPool(gevent.pool.Pool):
                 break
             call_and_put(function, args, kwargs, pipe)
 
+    def _spawn_worker(self):
+        """Spanws a new worker."""
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            p_pipe, c_pipe = gipc.pipe(duplex=True)
+        worker = Processlet.spawn(self._run_worker, c_pipe)
+        worker.pipe = p_pipe
+        worker.rawlink(self._close_worker_pipe)
+        return worker
 
-noop = lambda *args, **kwargs: None
+    def _close_worker_pipe(self, worker):
+        """Closes the pipe of the worker. Used for rawlink."""
+        worker.unlink(self._close_worker_pipe)
+        worker.pipe.close()
 
+    def _add_worker(self, worker):
+        """Registers the worker."""
+        worker.rawlink(self._discard_worker)
+        self._workers.append(worker)
 
-class Transparentlet(gevent.Greenlet):
-    """Saves the actual exc_info when the function raises some exception. It
-    doesn't print exception to stderr. Consider to use this. It saves heavy
-    traceback object also.
-    """
-
-    exc_info = None
-
-    def _report_error(self, exc_info):
-        """Same with :meth:`gevent.Greenlet._report_error` but saves exc_info
-        event a traceback object and doesn't call the parent's
-        ``handle_error``.
-        """
-        self.exc_info = exc_info
-        handle_error, self.parent.handle_error = self.parent.handle_error, noop
-        super(Transparentlet, self)._report_error(exc_info)
-        self.parent.handle_error = handle_error
-
-    def get(self, block=True, timeout=None):
-        """Returns the result. If the function raises an exception, it also
-        raises the exception and traceback transparently.
-        """
-        try:
-            return super(Transparentlet, self).get(block, timeout)
-        except:
-            if self.exc_info is None:
-                raise
-            else:
-                raise self.exc_info[0], self.exc_info[1], self.exc_info[2]
-
-
-class TransparentGroup(gevent.pool.Group):
-    """Raises an exception and traceback in the greenlets transparently."""
-
-    greenlet_class = Transparentlet
-
-    def join(self, timeout=None, raise_error=False):
-        if raise_error:
-            greenlets = self.greenlets.copy()
-            self._empty_event.wait(timeout=timeout)
-            for greenlet in greenlets:
-                if greenlet.ready() and not greenlet.successful():
-                    greenlet.get(timeout=timeout)
-        else:
-            self._empty_event.wait(timeout=timeout)
+    def _discard_worker(self, worker):
+        """Unregisters the worker. Used for rawlink."""
+        worker.unlink(self._discard_worker)
+        self._workers.remove(worker)

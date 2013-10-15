@@ -25,7 +25,7 @@ import sys
 
 
 # detect the current version
-with open('lets.py') as f:
+with open('lets/__init__.py') as f:
     version = re.search(r'__version__\s*=\s*\'(.+?)\'', f.read()).group(1)
 assert version
 
@@ -54,7 +54,7 @@ setup(
     description='Several greenlet subclasses',
     long_description=__doc__,
     platforms='any',
-    py_modules=['lets'],
+    packages=['lets'],
     zip_safe=False,  # i don't like egg
     classifiers=['Development Status :: 4 - Beta',
                  'Intended Audience :: Developers',

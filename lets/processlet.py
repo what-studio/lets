@@ -35,6 +35,7 @@
     :copyright: (c) 2013 by Heungsub Lee
     :license: BSD, see LICENSE for more details.
 """
+from __future__ import absolute_import
 import os
 import warnings
 
@@ -42,6 +43,8 @@ import gevent
 import gevent.pool
 import gevent.queue
 import gipc
+
+from .objectpool import ObjectPool
 
 
 __all__ = ['ProcessExit', 'Processlet', 'ProcessPool']
@@ -55,6 +58,7 @@ class ProcessExit(BaseException):
 
     def __init__(self, code):
         self.code = code
+        super(ProcessExit, self).__init__(code)
 
 
 def call_and_put(function, args, kwargs, pipe):
@@ -164,16 +168,16 @@ class ProcessPool(gevent.pool.Pool):
     """
 
     def __init__(self, size=None):
+        self._worker_pool = ObjectPool(size, self._spawn_worker)
         super(ProcessPool, self).__init__(size)
-        self._worker_queue = gevent.queue.Queue(size)
-        self._workers = set()
 
     def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
         """Kills all workers and customer greenlets."""
-        for worker in self._workers:
+        workers = self._worker_pool.objects
+        for worker in workers:
             worker.kill(exception, block=False)
         if block:
-            gevent.joinall(self._workers, timeout=timeout)
+            gevent.joinall(workers, timeout=timeout)
         super(ProcessPool, self).kill(exception, block, timeout)
 
     def greenlet_class(self, function, *args, **kwargs):
@@ -182,33 +186,14 @@ class ProcessPool(gevent.pool.Pool):
         """
         return gevent.Greenlet(self._run_customer, function, *args, **kwargs)
 
-    def _available_worker(self):
-        """Gets an available worker. If there's no, spawns and adds a new
-        worker.
-        """
-        while True:
-            try:
-                worker = self._worker_queue.get(block=False)
-            except gevent.queue.Empty:
-                # create new worker
-                worker = self._spawn_worker()
-                self._add_worker(worker)
-            else:
-                if worker not in self._workers:
-                    # the worker has been closed
-                    continue
-            # found
-            break
-        return worker
-
     def _run_customer(self, function, *args, **kwargs):
         """Sends a call to an available worker and receives result."""
-        worker = self._available_worker()
+        worker = self._worker_pool.get()
         worker.pipe.put((function, args, kwargs))
         try:
             successful, value = worker.pipe.get()
         finally:
-            self._worker_queue.put(worker)
+            self._worker_pool.release(worker)
         if successful:
             return value
         else:
@@ -233,22 +218,11 @@ class ProcessPool(gevent.pool.Pool):
             p_pipe, c_pipe = gipc.pipe(duplex=True)
         worker = Processlet.spawn(self._run_worker, c_pipe)
         worker.pipe = p_pipe
-        worker.rawlink(self._close_worker_pipe)
-        return worker
-
-    def _close_worker_pipe(self, worker):
-        """Closes the pipe of the worker. Used for rawlink."""
-        worker.unlink(self._close_worker_pipe)
-        worker.pipe.close()
-
-    def _add_worker(self, worker):
-        """Registers the worker."""
         worker.rawlink(self._discard_worker)
-        self._workers.add(worker)
-        if self.size is not None:
-            assert len(self._workers) <= self.size
+        return worker
 
     def _discard_worker(self, worker):
         """Unregisters the worker. Used for rawlink."""
         worker.unlink(self._discard_worker)
-        self._workers.discard(worker)
+        worker.pipe.close()
+        self._worker_pool.discard(worker)

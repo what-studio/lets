@@ -63,6 +63,10 @@ def divide_by_zero():
     1989 / 12 / 12 / 0
 
 
+def throw(exception):
+    raise exception
+
+
 class Killed(BaseException):
 
     pass

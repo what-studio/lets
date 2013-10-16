@@ -26,12 +26,12 @@ Several ``gevent.Greenlet`` subclasses.
    gevent.spawn(tictoc)
 
    # Greenlet, tictoc pauses for a few seconds
-   glet = gevent.spawn(hash_password, 'my_password')
-   hash = glet.get()
+   greenlet = gevent.spawn(hash_password, 'my_password')
+   hash = greenlet.get()
 
    # Processlet, tictoc never pauses
-   proc = Processlet.spawn(hash_password, 'my_password')
-   hash = proc.get()
+   processlet = Processlet.spawn(hash_password, 'my_password')
+   hash = processlet.get()
 
 Links
 `````

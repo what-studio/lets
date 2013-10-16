@@ -25,7 +25,8 @@ Processlet for bcrypt
 ---------------------
 
 bcrypt_ is a library to hash password. That the hashing is very heavy CPU-bound
-task. You can't guarantee concurrency with only gevent. Use ``Processlet``:
+task. You can't guarantee concurrency with only gevent. Use ``Processlet``
+instead:
 
 .. _bcrypt: https://github.com/pyca/bcrypt/
 
@@ -54,14 +55,16 @@ task. You can't guarantee concurrency with only gevent. Use ``Processlet``:
    gevent.spawn(tictoc)
 
    # Greenlet, tictoc pauses for a few seconds
-   greenlet = gevent.spawn(hash_password, passwords[10])
-   password_hash = greenlet.get()
+   greenlet = gevent.spawn(hash_password, passwords[0])
+   password_hash_0 = greenlet.get()
 
    # Processlet, tictoc never pauses
-   processlet = Processlet.spawn(hash_password, passwords[20])
-   password_hash = processlet.get()
+   processlet_1 = Processlet.spawn(hash_password, passwords[1])
+   processlet_2 = Processlet.spawn(hash_password, passwords[2])
+   password_hash_1 = processlet_1.get()
+   password_hash_2 = processlet_2.get()
 
-Or use ``ProcessPool`` to limit the number of child processes:
+You can also limit the number of child processes with ``ProcessPool``:
 
 .. sourcecode:: python
 

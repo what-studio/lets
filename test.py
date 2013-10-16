@@ -16,8 +16,10 @@ import gipc
 import psutil
 import pytest
 
-from lets import Processlet, ProcessExit, ProcessPool, Transparentlet, TransparentGroup
-from lets.transparentlet import indifferent_hub
+from lets import (
+    Processlet, ProcessExit, ProcessPool, Transparentlet, TransparentGroup)
+from lets.objectpool import ObjectPool
+from lets.transparentlet import no_error_handling
 
 
 def pytest_generate_tests(metafunc):
@@ -245,7 +247,7 @@ def test_process_pool_map(proc):
     assert len(proc.get_children()) == 0
 
 
-def test_process_pool_without_size(proc):
+def test_process_pool_unlimited(proc):
     assert len(proc.get_children()) == 0
     pool = ProcessPool()
     with killing(pool):
@@ -377,19 +379,19 @@ def test_task_kills_group(proc, group):
     assert isinstance(g3.exception, RuntimeError)
 
 
-def test_indifferent_hub(capsys):
+def test_no_error_handling(capsys):
     # print exception
     gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
     assert 'ZeroDivisionError' in err
     # don't print
-    with indifferent_hub():
+    with no_error_handling():
         gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
     assert not err
     # don't print also
     gevent.spawn(divide_by_zero)
-    with indifferent_hub():
+    with no_error_handling():
         gevent.wait()
     out, err = capsys.readouterr()
     assert not err
@@ -430,3 +432,73 @@ def test_transparentlet_system_exit():
     assert job.ready()
     assert not job.successful()
     assert isinstance(job.exception, SystemExit)
+
+
+def test_object_pool():
+    # getting object blocks
+    pool = ObjectPool(2, object)
+    assert pool.available()
+    o1 = pool.get()
+    assert pool.available()
+    o2 = pool.get()
+    assert not pool.available()
+    with pytest.raises(gevent.hub.LoopExit):
+        pool.get()
+    assert o1 is not o2
+    # release and get again
+    pool.release(o1)
+    assert pool.available()
+    o3 = pool.get()
+    assert not pool.available()
+    assert o1 is o3
+    # discard
+    pool.discard(o2)
+    o4 = pool.get()
+    assert not pool.available()
+    assert o2 is not o4
+    pool.discard(o4)
+    assert pool.available()
+
+
+def test_object_pool_unlimited():
+    # getting object blocks
+    pool = ObjectPool(None, object)
+    assert pool.available()
+    o1 = pool.get()
+    assert pool.available()
+    o2 = pool.get()
+    assert pool.available()
+    assert o1 is not o2
+    assert len(pool.objects) == 2
+    # release and get again
+    pool.release(o1)
+    o3 = pool.get()
+    assert o1 is o3
+    o4 = pool.get()
+    assert o4 is not o1
+    assert o4 is not o2
+    assert len(pool.objects) == 3
+    # discard
+    pool.discard(o2)
+    o5 = pool.get()
+    assert o2 is not o5
+
+
+def test_object_pool_context():
+    pool = ObjectPool(1, object)
+    assert pool.available()
+    with pool.reserve() as o:
+        assert type(o) is object
+        assert not pool.available()
+    assert pool.available()
+
+
+def test_object_pool_wait_available():
+    pool = ObjectPool(1, object)
+    o = pool.get()
+    waiting_avaiable = gevent.spawn(pool.wait_available)
+    waiting_avaiable.join(0.1)
+    assert not waiting_avaiable.ready()
+    pool.release(o)
+    waiting_avaiable.join(0.1)
+    assert waiting_avaiable.ready()

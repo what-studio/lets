@@ -3,6 +3,8 @@
     lets.processlet
     ~~~~~~~~~~~~~~~
 
+    Maximizing multi-core use in gevent environment.
+
     :class:`Processlet` is a subclass of :class:`gevent.Greenlet` but focuses
     to CPU-bound tasks not I/O-bound. Never give up high concurrency gevent
     offered.
@@ -96,8 +98,8 @@ class Processlet(gevent.Greenlet):
     exit_code = None
 
     def __init__(self, function=None, *args, **kwargs):
-        self.function = function
         super(Processlet, self).__init__(None, *args, **kwargs)
+        self.function = function
 
     @property
     def pid(self):
@@ -168,8 +170,8 @@ class ProcessPool(gevent.pool.Pool):
     """
 
     def __init__(self, size=None):
-        self._worker_pool = ObjectPool(size, self._spawn_worker)
         super(ProcessPool, self).__init__(size)
+        self._worker_pool = ObjectPool(size, self._spawn_worker)
 
     def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
         """Kills all workers and customer greenlets."""

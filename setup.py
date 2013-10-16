@@ -3,10 +3,31 @@
 Lets
 ~~~~
 
-Several ``gevent.Greenlet`` subclasses.
+Utilities for gevent_ 1.0.
 
-* ``Processlet``
-* ``Transparentlet``
+.. _gevent: http://gevent.org/
+
+There're several ``gevent.Greenlet`` subclasses:
+
+* ``Processlet`` -- maximizing multi-core use in gevent environment.
+* ``Transparentlet`` -- keeping exc_info rather than printing exception.
+
+And etc.:
+
+* ``ObjectPool`` -- pooling objects. (e.g. connection pool)
+
+See the below examples.
+
+Examples
+========
+
+Processlet for bcrypt
+---------------------
+
+bcrypt_ is a library to hash password. That the hashing is very heave CPU-bound
+task. You can't guarantee concurrency with only gevent. Use ``Processlet``:
+
+.. _bcrypt: https://github.com/pyca/bcrypt/
 
 .. sourcecode:: python
 
@@ -23,18 +44,57 @@ Several ``gevent.Greenlet`` subclasses.
            print '.'
            gevent.sleep(delay)
 
+   passwords = ['alfa', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot',
+                'golf', 'hotel', 'india', 'juliett', 'kilo', 'lima', 'mike',
+                'november', 'oscar', 'papa', 'quebec', 'romeo', 'sierra',
+                'tango', 'uniform', 'victor', 'whiskey', 'xray', 'yankee',
+                'zulu']
+
+   # start tictoc
    gevent.spawn(tictoc)
 
    # Greenlet, tictoc pauses for a few seconds
-   greenlet = gevent.spawn(hash_password, 'my_password')
-   hash = greenlet.get()
+   greenlet = gevent.spawn(hash_password, passwords[10])
+   password_hash = greenlet.get()
 
    # Processlet, tictoc never pauses
-   processlet = Processlet.spawn(hash_password, 'my_password')
-   hash = processlet.get()
+   processlet = Processlet.spawn(hash_password, passwords[20])
+   password_hash = processlet.get()
+
+Or use ``ProcessPool`` to limit the number of child processes:
+
+.. sourcecode:: python
+
+   import multiprocessing
+   from lets import ProcessPool
+
+   pool_size = max(multiprocessing.cpu_count() - 1, 1)
+   pool = ProcessPool(pool_size)
+   password_hashes = pool.map(hash_password, passwords)
+
+Memcached connection pool
+-------------------------
+
+Greenlet-safe connection pool can be easily implemented by ``ObjectPool``:
+
+.. sourcecode:: python
+
+   import memcache
+   from lets import ObjectPool
+
+   mc_pool = ObjectPool(10, memcache.Client, [('localhost', 11211)])
+
+   def save(key, val):
+       with mc_pool.reserve() as mc:
+           mc.set(key, val)
+
+   for x, password_hash in enumerate(password_hashes):
+       gevent.spawn(save, 'password_hashes[%d]' % x, password_hash)
+
+   gevent.wait()
 
 Links
-`````
+=====
 
 * `GitHub repository <http://github.com/sublee/lets>`_
 * `development version

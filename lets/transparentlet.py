@@ -3,6 +3,8 @@
     lets.transparentlet
     ~~~~~~~~~~~~~~~~~~~
 
+    Keeping exc_info rather than printing exception.
+
     :copyright: (c) 2013 by Heungsub Lee
     :license: BSD, see LICENSE for more details.
 """
@@ -12,14 +14,14 @@ import gevent
 import gevent.pool
 
 
-__all__ = ['Transparentlet', 'TransparentGroup', 'indifferent_hub']
+__all__ = ['Transparentlet', 'TransparentGroup', 'no_error_handling']
 
 
 noop = lambda *args, **kwargs: None
 
 
 @contextmanager
-def indifferent_hub(hub=None):
+def no_error_handling(hub=None):
     """The gevent hub prints greenlet exception to stderr and handles system
     errors. This context makes the hub do not interest in greenlet errors.
     """
@@ -46,7 +48,7 @@ class Transparentlet(gevent.Greenlet):
         ``handle_error``.
         """
         self.exc_info = exc_info
-        with indifferent_hub(self.parent):
+        with no_error_handling(self.parent):
             super(Transparentlet, self)._report_error(exc_info)
 
     def get(self, block=True, timeout=None):

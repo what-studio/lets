@@ -16,7 +16,7 @@ And etc.:
 
 * ``ObjectPool`` -- pooling objects. (e.g. connection pool)
 
-See the below examples.
+See the next examples.
 
 Examples
 ========
@@ -24,7 +24,7 @@ Examples
 Processlet for bcrypt
 ---------------------
 
-bcrypt_ is a library to hash password. That the hashing is very heave CPU-bound
+bcrypt_ is a library to hash password. That the hashing is very heavy CPU-bound
 task. You can't guarantee concurrency with only gevent. Use ``Processlet``:
 
 .. _bcrypt: https://github.com/pyca/bcrypt/

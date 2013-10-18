@@ -502,3 +502,25 @@ def test_object_pool_wait_available():
     pool.release(o)
     waiting_avaiable.join(0.1)
     assert waiting_avaiable.ready()
+
+
+def test_object_pool_rotation():
+    counter = [0]
+    def f():
+        counter[0] += 1
+        return counter[0]
+    pool = ObjectPool(3, f)
+    assert pool.get() == 1
+    assert pool.get() == 2
+    assert pool.get() == 3
+    pool.release(1)
+    pool.release(2)
+    pool.release(3)
+    assert pool.get() == 1
+    pool.discard(2)
+    assert pool.get() == 3
+    assert pool.get() == 4
+    pool.discard(1)
+    pool.release(1)
+    assert pool.get() == 5
+    assert not pool.available()

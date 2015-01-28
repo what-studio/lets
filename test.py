@@ -10,7 +10,6 @@ import weakref
 
 import gevent
 from gevent import GreenletExit
-from gevent.event import Event
 from gevent.pool import Group
 import gipc
 import psutil
@@ -398,7 +397,7 @@ def test_no_error_handling(capsys):
 
 
 def test_greenlet_system_exit():
-    job = gevent.spawn(sys.exit)
+    gevent.spawn(sys.exit)
     with pytest.raises(SystemExit):
         gevent.spawn(gevent.sleep, 0.1).join()
 
@@ -445,12 +444,14 @@ def test_object_pool():
     with pytest.raises(gevent.hub.LoopExit):
         pool.get()
     assert o1 is not o2
+    assert len(pool.objects) == 2
     # release and get again
     pool.release(o1)
     assert pool.available()
     o3 = pool.get()
     assert not pool.available()
     assert o1 is o3
+    assert len(pool.objects) == 2
     # discard
     pool.discard(o2)
     o4 = pool.get()
@@ -524,3 +525,15 @@ def test_object_pool_rotation():
     pool.release(1)
     assert pool.get() == 5
     assert not pool.available()
+
+
+def test_object_pool_with_slow_behaviors():
+    def slow():
+        gevent.sleep(0.1)
+        return object()
+    pool = ObjectPool(2, slow)
+    def consume_obj_from_pool():
+        with pool.reserve():
+            gevent.sleep(0.1)
+    gevent.joinall([gevent.spawn(consume_obj_from_pool) for x in range(10)])
+    assert len(pool.objects) == 2

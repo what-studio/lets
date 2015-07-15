@@ -24,7 +24,7 @@ noop = lambda *args, **kwargs: None
 @contextmanager
 def no_error_handling(hub=None):
     """The gevent hub prints greenlet exception to stderr and handles system
-    errors. This context makes the hub do not interest in greenlet errors.
+    errors.  This context makes the hub do not interest in greenlet errors.
     """
     if hub is None:
         hub = gevent.hub.get_hub()
@@ -36,8 +36,8 @@ def no_error_handling(hub=None):
 
 
 class Transparentlet(gevent.Greenlet):
-    """Saves the actual exc_info when the function raises some exception. It
-    doesn't print exception to stderr. Consider to use this. It saves heavy
+    """Saves the actual exc_info when the function raises some exception.  It
+    doesn't print exception to stderr.  Consider to use this.  It saves heavy
     traceback object also.
     """
 
@@ -53,7 +53,7 @@ class Transparentlet(gevent.Greenlet):
             super(Transparentlet, self)._report_error(exc_info)
 
     def get(self, block=True, timeout=None):
-        """Returns the result. If the function raises an exception, it also
+        """Returns the result.  If the function raises an exception, it also
         raises the exception and traceback transparently.
         """
         try:

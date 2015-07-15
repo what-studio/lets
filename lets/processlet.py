@@ -6,7 +6,7 @@
     Maximizing multi-core use in gevent environment.
 
     :class:`Processlet` is a subclass of :class:`gevent.Greenlet` but focuses
-    to CPU-bound tasks not I/O-bound. Never give up high concurrency gevent
+    to CPU-bound tasks not I/O-bound.  Never give up high concurrency gevent
     offered.
 
     .. sourcecode:: python
@@ -15,7 +15,8 @@
        import gevent
        from lets import Processlet
 
-       # bcrypt.hashpw is very heavy cpu-bound task. it can spend a few seconds.
+       # bcrypt.hashpw is very heavy cpu-bound task.
+       # it can spend a few seconds.
        def hash_password(password, salt=bcrypt.gensalt()):
            return bcrypt.hashpw(str(password), salt)
 
@@ -124,8 +125,8 @@ class Processlet(gevent.Greenlet):
             self.join(timeout)
 
     def _run(self, *args, **kwargs):
-        """Opens pipe and starts child process to run :meth:`_run_child`. Then
-        it waits for the child process done.
+        """Opens pipe and starts child process to run :meth:`_run_child`.
+        Then it waits for the child process done.
         """
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
@@ -155,7 +156,7 @@ class Processlet(gevent.Greenlet):
                 raise value
 
     def _run_child(self, *args, **kwargs):
-        """The target of child process. It puts result to the pipe when it
+        """The target of child process.  It puts result to the pipe when it
         done.
         """
         pipe, args = args[0], args[1:]
@@ -166,7 +167,7 @@ class Processlet(gevent.Greenlet):
 
 
 class ProcessPool(gevent.pool.Pool):
-    """Recyclable worker :class:`Processlet` pool. It should be finalized with
+    """Recyclable worker :class:`Processlet` pool.  It should be finalized with
     :meth:`kill` to close all child processes.
     """
 
@@ -184,7 +185,7 @@ class ProcessPool(gevent.pool.Pool):
         super(ProcessPool, self).kill(exception, block, timeout)
 
     def greenlet_class(self, function, *args, **kwargs):
-        """The fake greenlet class. It wraps the function with
+        """The fake greenlet class.  It wraps the function with
         :meth:`_run_customer`.
         """
         return gevent.Greenlet(self._run_customer, function, *args, **kwargs)
@@ -225,7 +226,7 @@ class ProcessPool(gevent.pool.Pool):
         return worker
 
     def _discard_worker(self, worker):
-        """Unregisters the worker. Used for rawlink."""
+        """Unregisters the worker.  Used for rawlink."""
         worker.unlink(self._discard_worker)
         worker.pipe.close()
         self._worker_pool.discard(worker)

@@ -24,9 +24,9 @@ Examples
 Processlet for bcrypt
 ---------------------
 
-bcrypt_ is a library to hash password. That the hashing is very heavy CPU-bound
-task. You can't guarantee concurrency with only gevent. Use ``Processlet``
-instead:
+bcrypt_ is a library to hash password.  That the hashing is very heavy
+CPU-bound task.  You can't guarantee concurrency with only gevent.  Use
+``Processlet`` instead:
 
 .. _bcrypt: https://github.com/pyca/bcrypt/
 
@@ -36,7 +36,7 @@ instead:
    import gevent
    from lets import Processlet
 
-   # bcrypt.hashpw is very heavy cpu-bound task. it can spend a few seconds.
+   # bcrypt.hashpw is very heavy cpu-bound task.  it can spend a few seconds.
    def hash_password(password, salt=bcrypt.gensalt()):
        return bcrypt.hashpw(str(password), salt)
 
@@ -105,20 +105,23 @@ Links
 
 """
 from __future__ import with_statement
-import multiprocessing  # prevent an error in atexit._run_exitfuncs
 import re
 from setuptools import setup
 from setuptools.command.test import test as TestCommand
 import sys
 
 
-# detect the current version
+# prevent an error in atexit._run_exitfuncs.
+__import__('multiprocessing')
+
+
+# detect the current version.
 with open('lets/__init__.py') as f:
     version = re.search(r'__version__\s*=\s*\'(.+?)\'', f.read()).group(1)
 assert version
 
 
-# use pytest instead
+# use pytest instead.
 class PyTest(TestCommand):
 
     def finalize_options(self):
@@ -143,7 +146,7 @@ setup(
     long_description=__doc__,
     platforms='any',
     packages=['lets'],
-    zip_safe=False,  # i don't like egg
+    zip_safe=False,  # i don't like egg.
     classifiers=['Development Status :: 4 - Beta',
                  'Intended Audience :: Developers',
                  'License :: OSI Approved :: BSD License',
@@ -153,9 +156,7 @@ setup(
                  'Programming Language :: Python :: 2.7',
                  'Programming Language :: Python :: Implementation :: CPython',
                  'Topic :: Software Development'],
-    # gevent 1.0 is currently not available at PyPI
-    # install_requires=['gevent>=1.0', 'gipc'],
-    install_requires=['gipc'],
+    install_requires=['gevent', 'gipc'],
     tests_require=['pytest'],
     cmdclass={'test': PyTest},
 )

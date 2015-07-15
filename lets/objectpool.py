@@ -50,8 +50,8 @@ class ObjectPool(object):
         self._queue.peek(timeout=timeout)
 
     def get(self):
-        """Gets an object. When the pool is available but doesn't have an
-        object yet, it creates a new object. It also acquires the lock. Don't
+        """Gets an object.  When the pool is available but doesn't have an
+        object yet, it creates a new object.  It also acquires the lock.  Don't
         forget release the object got to the pool.
         """
         self._lock.acquire()

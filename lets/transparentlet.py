@@ -5,8 +5,9 @@
 
     Keeping exc_info rather than printing exception.
 
-    :copyright: (c) 2013 by Heungsub Lee
+    :copyright: (c) 2013-2015 by Heungsub Lee
     :license: BSD, see LICENSE for more details.
+
 """
 from contextlib import contextmanager
 

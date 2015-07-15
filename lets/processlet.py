@@ -14,28 +14,29 @@
        import bcrypt
        import gevent
        from lets import Processlet
-       
+
        # bcrypt.hashpw is very heavy cpu-bound task. it can spend a few seconds.
        def hash_password(password, salt=bcrypt.gensalt()):
            return bcrypt.hashpw(str(password), salt)
-       
+
        def tictoc(delay=0.1):
            while True:
                print '.'
                gevent.sleep(delay)
-       
+
        gevent.spawn(tictoc)
-       
+
        # Greenlet, tictoc pauses for a few seconds
        glet = gevent.spawn(hash_password, 'my_password')
        hash = glet.get()
-       
+
        # Processlet, tictoc never pauses
        proc = Processlet.spawn(hash_password, 'my_password')
        hash = proc.get()
 
-    :copyright: (c) 2013 by Heungsub Lee
+    :copyright: (c) 2013-2015 by Heungsub Lee
     :license: BSD, see LICENSE for more details.
+
 """
 from __future__ import absolute_import
 import os

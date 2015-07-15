@@ -3,12 +3,13 @@
     lets
     ~~~~
 
-    Utilities for gevent_ 1.0.
+    Utilities for gevent_.
 
     .. _gevent: http://gevent.org/
 
-    :copyright: (c) 2013 by Heungsub Lee
+    :copyright: (c) 2013-2015 by Heungsub Lee
     :license: BSD, see LICENSE for more details.
+
 """
 from __future__ import absolute_import
 

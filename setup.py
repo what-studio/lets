@@ -157,6 +157,6 @@ setup(
                  'Programming Language :: Python :: Implementation :: CPython',
                  'Topic :: Software Development'],
     install_requires=['gevent', 'gipc'],
-    tests_require=['pytest'],
+    tests_require=['psutil', 'pytest'],
     cmdclass={'test': PyTest},
 )

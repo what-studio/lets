@@ -17,11 +17,8 @@ __all__ = ['ObjectPool']
 class ObjectPool(object):
     """Greenlet-safe object pool."""
 
-    objects = None
-    size = None
-    function = None
-    args = None
-    kwargs = None
+    __slots__ = ['objects', 'size', 'function', 'args', 'kwargs',
+                 '_lock', '_queue', '_busy']
 
     def __init__(self, size, function, *args, **kwargs):
         if size is None:

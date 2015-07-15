@@ -72,11 +72,11 @@ class TransparentGroup(gevent.pool.Group):
     greenlet_class = Transparentlet
 
     def join(self, timeout=None, raise_error=False):
-        if raise_error:
-            greenlets = self.greenlets.copy()
+        if not raise_error:
             self._empty_event.wait(timeout=timeout)
-            for greenlet in greenlets:
-                if greenlet.ready() and not greenlet.successful():
-                    greenlet.get(timeout=timeout)
-        else:
-            self._empty_event.wait(timeout=timeout)
+            return
+        greenlets = self.greenlets.copy()
+        self._empty_event.wait(timeout=timeout)
+        for greenlet in greenlets:
+            if greenlet.ready() and not greenlet.successful():
+                greenlet.get(timeout=timeout)

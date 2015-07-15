@@ -157,9 +157,9 @@ def test_processlet_start_twice():
 def test_kill_processlet(proc):
     job = Processlet.spawn(raise_when_killed)
     job.join(0)
-    assert len(proc.get_children()) == 1
+    assert len(proc.children()) == 1
     job.kill()
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     with pytest.raises(Killed):
         job.get()
     assert job.exit_code == 1
@@ -172,9 +172,9 @@ def test_kill_processlet_group(proc):
     group.spawn(raise_when_killed)
     group.spawn(raise_when_killed)
     group.join(0)
-    assert len(proc.get_children()) == 3
+    assert len(proc.children()) == 3
     group.kill()
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     for job in group:
         with pytest.raises(Killed):
             job.get()
@@ -182,7 +182,7 @@ def test_kill_processlet_group(proc):
 
 
 def test_process_pool_recycles_child_process(proc):
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     pool = ProcessPool(1)
     with killing(pool):
         pids = set()
@@ -190,12 +190,12 @@ def test_process_pool_recycles_child_process(proc):
             pids.add(pool.spawn(os.getpid).get())
         assert len(pids) == 1
         assert next(iter(pids)) != os.getpid()
-        assert len(proc.get_children()) == 1
-    assert len(proc.get_children()) == 0
+        assert len(proc.children()) == 1
+    assert len(proc.children()) == 0
 
 
 def test_process_pool_size_limited(proc):
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     pool = ProcessPool(2)
     with killing(pool):
         pool.spawn(busy_waiting, 0.1)
@@ -204,13 +204,13 @@ def test_process_pool_size_limited(proc):
         pool.spawn(busy_waiting, 0.2)
         pool.spawn(busy_waiting, 0.1)
         pool.join(0)
-        assert len(proc.get_children()) == 2
+        assert len(proc.children()) == 2
         pool.join()
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
 
 
 def test_process_pool_waits_worker_available(proc):
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     pool = ProcessPool(2)
     with killing(pool):
         with Timeout(0.1):
@@ -220,12 +220,12 @@ def test_process_pool_waits_worker_available(proc):
             with Timeout(0.1):
                 pool.spawn(busy_waiting, 0.5)
         pool.join()
-        assert len(proc.get_children()) == 2
-    assert len(proc.get_children()) == 0
+        assert len(proc.children()) == 2
+    assert len(proc.children()) == 0
 
 
 def test_process_pool_apply(proc):
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     pool = ProcessPool(2)
     with killing(pool):
         pool.apply_async(busy_waiting, (0.2,))
@@ -233,48 +233,48 @@ def test_process_pool_apply(proc):
         pool.apply_async(busy_waiting, (0.2,))
         with Timeout(0.5):
             pool.join()
-        assert len(proc.get_children()) == 2
-    assert len(proc.get_children()) == 0
+        assert len(proc.children()) == 2
+    assert len(proc.children()) == 0
 
 
 def test_process_pool_map(proc):
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     pool = ProcessPool(3)
     with killing(pool):
         assert pool.map(busy_waiting, [0.1] * 5) == [0.1] * 5
         assert len(set(pool.map(get_pid_anyway, range(10)))) == 3
-        assert len(proc.get_children()) == 3
-    assert len(proc.get_children()) == 0
+        assert len(proc.children()) == 3
+    assert len(proc.children()) == 0
 
 
 def test_process_pool_unlimited(proc):
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     pool = ProcessPool()
     with killing(pool):
         for x in range(5):
             pids = pool.map(get_pid_anyway, range(x + 1))
             assert len(pids) == x + 1
-            assert len(proc.get_children()) == x + 1
+            assert len(proc.children()) == x + 1
         for x in reversed(range(5)):
             pids = pool.map(get_pid_anyway, range(x + 1))
             assert len(pids) == x + 1
-            assert len(proc.get_children()) == 5
-    assert len(proc.get_children()) == 0
+            assert len(proc.children()) == 5
+    assert len(proc.children()) == 0
 
 
 def test_process_pool_respawns_worker(proc):
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     pool = ProcessPool(2)
     with killing(pool):
         pids1 = pool.map(get_pid_anyway, range(2))
         pool.kill()
         pids2 = pool.map(get_pid_anyway, range(2))
         assert not set(pids1).intersection(pids2)
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
 
 
 def test_process_pool_raises(proc):
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     pool = ProcessPool(1)
     with killing(pool):
         pid1 = pool.spawn(os.getpid).get()
@@ -283,7 +283,7 @@ def test_process_pool_raises(proc):
             g.get()
         pid2 = pool.spawn(os.getpid).get()
         assert pid1 == pid2
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
 
 
 def test_transparentlet():
@@ -366,7 +366,7 @@ def test_task_kills_group(proc, group):
     g3 = group.spawn(f3)
     with pytest.raises((RuntimeError, Killed)):
         group.join(raise_error=True)
-    assert len(proc.get_children()) == 0
+    assert len(proc.children()) == 0
     assert not group.greenlets
     assert g1.ready()
     assert g2.ready()

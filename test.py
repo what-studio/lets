@@ -9,15 +9,16 @@ import time
 import weakref
 
 import gevent
-from gevent import GreenletExit
+from gevent import Greenlet, GreenletExit, Timeout
 from gevent.pool import Group
+from gevent.queue import Full
 import gipc
 import psutil
 import pytest
 
 from lets import (
-    Processlet, ProcessExit, ProcessPool, Transparentlet, TransparentGroup)
-from lets.objectpool import ObjectPool
+    JobQueue, ObjectPool, Processlet, ProcessExit, ProcessPool,
+    Transparentlet, TransparentGroup)
 from lets.transparentlet import no_error_handling
 
 
@@ -212,11 +213,11 @@ def test_process_pool_waits_worker_available(proc):
     assert len(proc.get_children()) == 0
     pool = ProcessPool(2)
     with killing(pool):
-        with gevent.Timeout(0.1):
+        with Timeout(0.1):
             pool.spawn(busy_waiting, 0.5)
             pool.spawn(busy_waiting, 0.5)
-        with pytest.raises(gevent.Timeout):
-            with gevent.Timeout(0.1):
+        with pytest.raises(Timeout):
+            with Timeout(0.1):
                 pool.spawn(busy_waiting, 0.5)
         pool.join()
         assert len(proc.get_children()) == 2
@@ -230,7 +231,7 @@ def test_process_pool_apply(proc):
         pool.apply_async(busy_waiting, (0.2,))
         pool.apply_async(busy_waiting, (0.2,))
         pool.apply_async(busy_waiting, (0.2,))
-        with gevent.Timeout(0.5):
+        with Timeout(0.5):
             pool.join()
         assert len(proc.get_children()) == 2
     assert len(proc.get_children()) == 0
@@ -537,3 +538,72 @@ def test_object_pool_with_slow_behaviors():
             gevent.sleep(0.1)
     gevent.joinall([gevent.spawn(consume_obj_from_pool) for x in range(10)])
     assert len(pool.objects) == 2
+
+
+def test_job_queue():
+    results = []
+    def f(x, delay=0):
+        gevent.sleep(delay)
+        results.append(x)
+    queue = JobQueue()
+    with pytest.raises(ValueError):
+        queue.put(Greenlet.spawn())
+    queue.put(Greenlet(f, 1, 0.1))
+    queue.put(Greenlet(f, 2, 0))
+    queue.put(Greenlet(f, 3, 0.2))
+    queue.put(Greenlet(f, 4, 0.1))
+    queue.join()
+    assert results == [1, 2, 3, 4]
+
+
+def test_job_queue_with_multiple_workers():
+    results = []
+    def f(x, delay=0):
+        gevent.sleep(delay)
+        results.append(x)
+    for workers, expected in [(1, [1, 2, 3, 4]), (2, [1, 3, 4, 2]),
+                              (3, [1, 3, 4, 2]), (4, [1, 4, 3, 2])]:
+        queue = JobQueue(workers=workers)
+        queue.put(Greenlet(f, 1, 0.1))
+        queue.put(Greenlet(f, 2, 0.5))
+        queue.put(Greenlet(f, 3, 0.2))
+        queue.put(Greenlet(f, 4, 0.1))
+        queue.join()
+        assert results == expected
+        del results[:]
+
+
+def test_job_queue_sized():
+    results = []
+    def f(x, delay=0):
+        gevent.sleep(delay)
+        results.append(x)
+    queue = JobQueue(2)
+    queue.put(Greenlet(f, 1, 0.1))
+    queue.put(Greenlet(f, 2, 0.1))
+    queue.put(Greenlet(f, 3, 0.1))
+    with pytest.raises(Full):
+        queue.put(Greenlet(f, 4, 0.1), timeout=0.01)
+    with pytest.raises(Full):
+        queue.put(Greenlet(f, 5, 0.1), block=False)
+    queue.join()
+    assert results == [1, 2, 3]
+
+
+def test_job_queue_exited():
+    results = []
+    def f(x, delay=0):
+        gevent.sleep(delay)
+        results.append(x)
+        return x
+    queue = JobQueue()
+    g1 = Greenlet(f, 1, 0.1)
+    g2 = Greenlet(f, 2, 0.1)
+    queue.put(g1)
+    queue.put(g2)
+    g1.join()
+    queue.kill()
+    queue.join()
+    assert results == [1]
+    assert g1.get() == 1
+    assert isinstance(g2.get(), gevent.GreenletExit)

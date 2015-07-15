@@ -301,6 +301,8 @@ def test_transparentlet_doesnt_print_exception(capsys):
     assert not err
 
 
+@pytest.mark.skipif(gevent.__version__ == '1.1a2',
+                    reason='Killed greenlet of gevent-1.1a2 raises nothing')
 def test_kill_transparentlet():
     job = Transparentlet.spawn(divide_by_zero)
     job.kill()

@@ -41,7 +41,7 @@ class JobQueue(object):
         self.queue.put(greenlet, block=block, timeout=timeout)
         # spawn a worker if the pool is available.
         if not self.worker_pool.full():
-            self.worker_pool.spawn(self.work)
+            return self.worker_pool.spawn(self.work)
 
     def work(self):
         """Consumes queued jobs.  It would be spawned when a job is enqueued.

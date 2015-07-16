@@ -34,6 +34,7 @@ class JobQueue(object):
         :param block: block the current greenlet if the job queue is full.
         :param timeout: how long it blocks.
 
+        :returns: a worker greenlet if it is spawned.
         :raises ValueError: the greenlet is already started.
         """
         if greenlet.started:

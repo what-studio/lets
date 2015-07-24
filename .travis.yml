@@ -3,7 +3,7 @@ sudo: false
 python:
 - 2.6
 - 2.7
-- pypy
+# - pypy  # gipc doesn't support PyPy.
 install:
 - pip install coveralls
 script:

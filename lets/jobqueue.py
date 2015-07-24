@@ -56,7 +56,7 @@ class JobQueue(object):
             for greenlet in greenlets():
                 greenlet.join()
                 self.queue.task_done()
-        except gevent.GreenletExit as exc:
+        except BaseException as exc:
             # kill remaining jobs.
             greenlet.kill(exc)
             for greenlet in greenlets():
@@ -82,4 +82,5 @@ class JobQueue(object):
         self.worker_pool.join(timeout=timeout, raise_error=raise_error)
 
     def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
+        self.worker_pool.join(0)
         self.worker_pool.kill(exception, block=block, timeout=timeout)

@@ -74,6 +74,11 @@ class Killed(BaseException):
     pass
 
 
+class ExpectedError(BaseException):
+
+    pass
+
+
 def raise_when_killed(exception=Killed):
     try:
         while True:
@@ -609,3 +614,27 @@ def test_job_queue_exited():
     assert results == [1]
     assert g1.get() == 1
     assert isinstance(g2.get(), gevent.GreenletExit)
+
+
+def test_job_queue_kill_with_error():
+    def f():
+        gevent.sleep(999)
+    g = Greenlet(f)
+    queue = JobQueue()
+    queue.put(g)
+    queue.kill(ExpectedError)
+    with pytest.raises(ExpectedError):
+        g.get(block=False)
+
+
+def test_job_queue_kill_before_working():
+    def f():
+        gevent.sleep(999)
+    g = Greenlet(f)
+    g.done = False
+    g.link(lambda g: setattr(g, 'done', True))
+    queue = JobQueue()
+    queue.put(g)
+    assert not g.done
+    queue.kill()
+    assert g.done

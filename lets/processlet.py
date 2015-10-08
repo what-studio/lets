@@ -142,17 +142,22 @@ class Processlet(gevent.Greenlet):
                 if proc.exitcode:
                     successful, value = False, SystemExit(proc.exitcode)
             except BaseException as exc:
-                p_pipe.put((False, exc))
-                successful, value = p_pipe.get()
+                try:
+                    p_pipe.put((False, exc))
+                except OSError:
+                    # broken pipe
+                    successful, value = False, exc
+                else:
+                    successful, value = p_pipe.get()
             proc.join()  # wait until the child process exits
-            self.exit_code = proc.exitcode
-            if successful:
-                return value
-            # failure
-            if isinstance(value, SystemExit):
-                raise ProcessExit(value.code)
-            else:
-                raise value
+        self.exit_code = proc.exitcode
+        if successful:
+            return value
+        # failure
+        if isinstance(value, SystemExit):
+            raise ProcessExit(value.code)
+        else:
+            raise value
 
     def _run_child(self, *args, **kwargs):
         """The target of child process.  It puts result to the pipe when it

@@ -42,6 +42,7 @@ class JobQueue(object):
             raise ValueError('Job greenlet is already started')
         self.queue.put(greenlet, block=block, timeout=timeout)
         # spawn a worker if the pool is available.
+        self.worker_pool.join(0)
         if not self.worker_pool.full():
             return self.worker_pool.spawn(self.work)
 

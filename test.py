@@ -570,14 +570,14 @@ def test_job_queue_with_multiple_workers():
         gevent.sleep(delay)
         results.append(x)
     for workers, expected in [(1, [1, 2, 3, 4]), (2, [1, 3, 4, 2]),
-                              (3, [1, 3, 4, 2]), (4, [1, 4, 3, 2])]:
+                              (3, [1, 4, 3, 2]), (4, [1, 4, 3, 2])]:
         queue = JobQueue(workers=workers)
-        queue.put(Greenlet(f, 1, 0.1))
-        queue.put(Greenlet(f, 2, 0.5))
-        queue.put(Greenlet(f, 3, 0.2))
-        queue.put(Greenlet(f, 4, 0.1))
+        queue.put(Greenlet(f, 1, 0.01))
+        queue.put(Greenlet(f, 2, 0.06))
+        queue.put(Greenlet(f, 3, 0.03))
+        queue.put(Greenlet(f, 4, 0.01))
         queue.join()
-        assert results == expected
+        assert results == expected, '%d workers' % workers
         del results[:]
 
 
@@ -639,3 +639,23 @@ def test_job_queue_kill_before_working():
     assert not g.done
     queue.kill()
     assert g.done
+
+
+def test_job_queue_guarantees_all_jobs():
+    queue = JobQueue()
+    xs = []
+    def f(x):
+        gevent.sleep(0.01)
+        xs.append(x)
+    queue.put(Greenlet(f, 0))
+    queue.put(Greenlet(f, 1))
+    g = Greenlet(f, 2)
+    queue.put(g)
+    g.join()
+    gevent.sleep(0)
+    # the worker has done but the worker pool is still full.
+    assert queue.worker_pool.full()
+    # before 0.0.12, the final job won't be scheduled.
+    queue.put(Greenlet(f, 3))
+    queue.join()
+    assert xs == [0, 1, 2, 3]

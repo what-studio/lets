@@ -9,15 +9,16 @@
 
     :copyright: (c) 2013-2015 by Heungsub Lee
     :license: BSD, see LICENSE for more details.
+
 """
 from __future__ import absolute_import
 
 from .jobqueue import JobQueue
 from .objectpool import ObjectPool
-from .processlet import Processlet, ProcessExit, ProcessPool
-from .transparentlet import Transparentlet, TransparentGroup
+from .processlet import ProcessExit, Processlet, ProcessPool
+from .transparentlet import TransparentGroup, Transparentlet
 
 
-__version__ = '0.0.11'
+__version__ = '0.0.12'
 __all__ = ['JobQueue', 'ObjectPool', 'Processlet', 'ProcessExit',
            'ProcessPool', 'Transparentlet', 'TransparentGroup']

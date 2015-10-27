@@ -105,10 +105,12 @@ Links
 
 """
 from __future__ import with_statement
+
 import re
+import sys
+
 from setuptools import setup
 from setuptools.command.test import test as TestCommand
-import sys
 
 
 # prevent an error in atexit._run_exitfuncs.
@@ -157,6 +159,6 @@ setup(
                  'Programming Language :: Python :: Implementation :: CPython',
                  'Topic :: Software Development'],
     install_requires=['gevent', 'gipc'],
-    tests_require=['psutil', 'pytest'],
+    tests_require=['psutil', 'pytest', 'pytest-rerunfailures'],
     cmdclass={'test': PyTest},
 )

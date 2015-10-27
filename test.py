@@ -17,8 +17,8 @@ import psutil
 import pytest
 
 from lets import (
-    JobQueue, ObjectPool, Processlet, ProcessExit, ProcessPool,
-    Transparentlet, TransparentGroup)
+    JobQueue, ObjectPool, ProcessExit, Processlet, ProcessPool,
+    TransparentGroup, Transparentlet)
 from lets.transparentlet import no_error_handling
 
 
@@ -102,6 +102,7 @@ def test_processlet_spawn_child_process():
     assert job.exit_code == 0
 
 
+@pytest.mark.flaky(reruns=10)
 def test_processlet_parellel_execution():
     t = time.time()
     jobs = [gevent.spawn(busy_waiting) for x in range(5)]

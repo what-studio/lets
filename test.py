@@ -160,6 +160,22 @@ def test_processlet_start_twice():
     assert r1 == r2
 
 
+def f_for_test_processlet_callback():
+    gevent.sleep(0.5)
+    0 / 0
+
+
+def test_processlet_callback():
+    pool = ProcessPool(2)
+    r = []
+    with killing(pool):
+        for x in range(10):
+            job = pool.spawn(f_for_test_processlet_callback)
+            job.link(lambda j: (j.join(), r.append(1)))
+        pool.join()
+    assert len(r) == 10
+
+
 def test_kill_processlet(proc):
     job = Processlet.spawn(raise_when_killed)
     job.join(0)

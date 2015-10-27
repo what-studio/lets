@@ -71,7 +71,7 @@ def call_and_put(function, args, kwargs, pipe):
     try:
         value = function(*args, **kwargs)
     except gevent.GreenletExit as exc:
-        pipe.put((False, exc))
+        pipe.put((True, exc))
     except SystemExit as exc:
         pipe.put((False, exc))
         raise
@@ -86,11 +86,9 @@ def call_and_put(function, args, kwargs, pipe):
 def get_and_kill(pipe, greenlet):
     """Kills the greenlet if the parent sends an exception."""
     try:
-        successful, exc = pipe.get()
+        exc = pipe.get()
     except EOFError as exc:
         pass
-    else:
-        assert not successful
     greenlet.kill(exc, block=False)
 
 
@@ -143,14 +141,16 @@ class Processlet(gevent.Greenlet):
                 proc.join()
                 if proc.exitcode:
                     successful, value = False, SystemExit(proc.exitcode)
-            except BaseException as exc:
+            except BaseException as value:
+                successful = isinstance(value, gevent.GreenletExit)
                 try:
-                    p_pipe.put((False, exc))
+                    p_pipe.put(value)
                 except OSError:
                     # broken pipe
-                    successful, value = False, exc
+                    pass
                 else:
                     successful, value = p_pipe.get()
+                proc.join()
             proc.join()  # wait until the child process exits
         self.exit_code = proc.exitcode
         if successful:
@@ -166,10 +166,9 @@ class Processlet(gevent.Greenlet):
         done.
         """
         pipe, args = args[0], args[1:]
-        greenlet = gevent.spawn(
-            call_and_put, self.function, args, kwargs, pipe)
-        gevent.spawn(get_and_kill, pipe, greenlet)
-        greenlet.join()
+        g = gevent.spawn(call_and_put, self.function, args, kwargs, pipe)
+        gevent.spawn(get_and_kill, pipe, g)
+        g.join()
 
 
 class ProcessPool(gevent.pool.Pool):
@@ -234,5 +233,4 @@ class ProcessPool(gevent.pool.Pool):
     def _discard_worker(self, worker):
         """Unregisters the worker.  Used for rawlink."""
         worker.unlink(self._discard_worker)
-        worker.pipe.close()
         self._worker_pool.discard(worker)

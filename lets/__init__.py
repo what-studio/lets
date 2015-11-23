@@ -19,6 +19,6 @@ from .processlet import ProcessExit, Processlet, ProcessPool
 from .transparentlet import TransparentGroup, Transparentlet
 
 
-__version__ = '0.0.12'
+__version__ = '0.0.13'
 __all__ = ['JobQueue', 'ObjectPool', 'Processlet', 'ProcessExit',
            'ProcessPool', 'Transparentlet', 'TransparentGroup']

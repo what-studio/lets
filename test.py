@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from contextlib import contextmanager
 import gc
+import multiprocessing
 import os
 import random
 import signal
@@ -22,15 +23,19 @@ from lets import (
 from lets.transparentlet import no_error_handling
 
 
-def pytest_generate_tests(metafunc):
-    if 'group' in metafunc.fixturenames:
-        greenlet_group = Group()
+group_names = ['greenlet_group', 'process_group', 'transparent_group']
+
+
+@pytest.fixture(params=group_names)
+def group(request):
+    if request.param == 'greenlet_group':
+        return Group()
+    elif request.param == 'process_group':
         process_group = Group()
         process_group.greenlet_class = Processlet
-        transparent_group = TransparentGroup()
-        groups = [greenlet_group, process_group, transparent_group]
-        ids = ['greenlet_group', 'process_group', 'transparent_group']
-        metafunc.parametrize('group', groups, ids=ids)
+        return process_group
+    elif request.param == 'transparent_group':
+        return TransparentGroup()
 
 
 @pytest.fixture
@@ -115,7 +120,7 @@ def test_processlet_parellel_execution():
     jobs = [Processlet.spawn(busy_waiting) for x in range(5)]
     gevent.joinall(jobs)
     delay = time.time() - t
-    assert delay < 0.2
+    assert delay < 0.1 * multiprocessing.cpu_count()
     for job in jobs:
         assert job.get() == 0.1
 
@@ -184,6 +189,18 @@ def test_kill_processlet(proc):
     assert len(proc.children()) == 0
     with pytest.raises(Killed):
         job.get()
+    assert job.exit_code == 1
+
+
+def test_kill_processlet_nonblock(proc):
+    job = Processlet.spawn(raise_when_killed)
+    job.join(0)
+    assert len(proc.children()) == 1
+    job.kill(block=False)
+    assert len(proc.children()) == 1
+    with pytest.raises(Killed):
+        job.get()
+    assert len(proc.children()) == 0
     assert job.exit_code == 1
 
 
@@ -447,6 +464,13 @@ def test_processlet_system_exit():
         job.get()
     assert e.value.code == 42
     assert job.exit_code == 42
+
+
+def test_processlet_exits_by_sigint():
+    job = Processlet.spawn(busy_waiting, 10)
+    job.send(signal.SIGINT)
+    job.join()
+    assert isinstance(job.get(), gevent.GreenletExit)
 
 
 def test_transparentlet_system_exit():

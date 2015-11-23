@@ -42,9 +42,12 @@
 from __future__ import absolute_import
 
 import os
+import signal
+import sys
 import warnings
 
 import gevent
+import gevent.event
 import gevent.pool
 import gevent.queue
 import gipc
@@ -68,18 +71,24 @@ class ProcessExit(BaseException):
 
 def call_and_put(function, args, kwargs, pipe):
     """Calls the function and sends result to the pipe."""
+    def pipe_put(value):
+        try:
+            pipe.put(value)
+        except OSError:
+            pass
     try:
         value = function(*args, **kwargs)
     except gevent.GreenletExit as exc:
-        pipe.put((True, exc))
+        pipe_put((True, exc))
     except SystemExit as exc:
-        pipe.put((False, exc))
-        raise
+        exc_info = sys.exc_info()
+        pipe_put((False, exc))
+        raise exc_info[0], exc_info[1], exc_info[2]
     except BaseException as exc:
-        pipe.put((False, exc))
+        pipe_put((False, exc))
         raise SystemExit(1)
     else:
-        pipe.put((True, value))
+        pipe_put((True, value))
     raise SystemExit(0)
 
 
@@ -96,32 +105,42 @@ class Processlet(gevent.Greenlet):
     """Calls a function in child process."""
 
     function = None
+    pid = None
     exit_code = None
 
     def __init__(self, function=None, *args, **kwargs):
         super(Processlet, self).__init__(None, *args, **kwargs)
         self.function = function
+        self._queue = gevent.queue.Queue()
+        self._started = gevent.event.Event()
 
-    @property
-    def pid(self):
-        """The pid of the child process."""
-        self.join(0)
-        try:
-            return self._pid
-        except AttributeError:
-            return None
+    def _call_when_started(self, function, *args, **kwargs):
+        if self._queue is None:
+            raise RuntimeError('Child process already started')
+        self._queue.put((function, args, kwargs))
 
-    @pid.setter
-    def pid(self, pid):
-        assert self.pid is None
-        self._pid = pid
+    def _wait_for_started(self, timeout=None):
+        self._started.wait(timeout=timeout)
 
     def send(self, signo, block=True, timeout=None):
         """Sends a signal to the child process."""
-        self.join(0)
+        if block:
+            self._wait_for_started(timeout=timeout)
+        elif not self._started.is_set():
+            self._call_when_started(self.send, signo, block=False)
+            return
         os.kill(self.pid, signo)
         if block:
             self.join(timeout)
+
+    def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
+        """Kills the child process like a greenlet."""
+        if block:
+            self._wait_for_started(timeout=timeout)
+        elif not self._started.is_set():
+            self._call_when_started(self.kill, exception, block=False)
+            return
+        return super(Processlet, self).kill(exception, block, timeout)
 
     def _run(self, *args, **kwargs):
         """Opens pipe and starts child process to run :meth:`_run_child`.
@@ -133,9 +152,23 @@ class Processlet(gevent.Greenlet):
         with pipe_pair as (p_pipe, c_pipe):
             args = (c_pipe,) + args
             proc = gipc.start_process(self._run_child, args, kwargs)
-            self.pid = proc.pid
             successful, value = True, None
             try:
+                # wait for child process started.
+                self.pid = p_pipe.get()
+                assert self.pid == proc.pid
+                self._started.set()
+                # call reserved function calls by :meth:`_call_when_started`.
+                while True:
+                    try:
+                        f, args, kwargs = self._queue.get(block=False)
+                    except gevent.queue.Empty:
+                        break
+                    else:
+                        f(*args, **kwargs)
+                assert self._queue.empty()
+                self._queue = None
+                # wait for result.
                 successful, value = p_pipe.get()
             except EOFError:
                 proc.join()
@@ -146,29 +179,38 @@ class Processlet(gevent.Greenlet):
                 try:
                     p_pipe.put(value)
                 except OSError:
-                    # broken pipe
+                    # broken pipe.
                     pass
                 else:
-                    successful, value = p_pipe.get()
+                    if self._started.is_set():
+                        successful, value = p_pipe.get()
                 proc.join()
-            proc.join()  # wait until the child process exits
+            finally:
+                proc.join()  # wait until the child process exits.
         self.exit_code = proc.exitcode
         if successful:
             return value
-        # failure
+        # failure.
         if isinstance(value, SystemExit):
-            raise ProcessExit(value.code)
+            if value.code == -signal.SIGINT:
+                raise gevent.GreenletExit('Exited by SIGINT')
+            else:
+                raise ProcessExit(value.code)
         else:
             raise value
 
-    def _run_child(self, *args, **kwargs):
+    def _run_child(self, pipe, *args, **kwargs):
         """The target of child process.  It puts result to the pipe when it
         done.
         """
-        pipe, args = args[0], args[1:]
-        g = gevent.spawn(call_and_put, self.function, args, kwargs, pipe)
-        gevent.spawn(get_and_kill, pipe, g)
-        g.join()
+        try:
+            pipe.put(os.getpid())  # child started.
+        except OSError:
+            pass
+        else:
+            g = gevent.spawn(call_and_put, self.function, args, kwargs, pipe)
+            gevent.spawn(get_and_kill, pipe, g)
+            g.join()
 
 
 class ProcessPool(gevent.pool.Pool):

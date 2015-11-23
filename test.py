@@ -101,10 +101,19 @@ def get_pid_anyway(*args, **kwargs):
 
 def test_processlet_spawn_child_process():
     job = Processlet.spawn(os.getppid)
+    job.join(0)
     assert job.exit_code is None
     assert job.pid != os.getpid()
     assert job.get() == os.getpid()
     assert job.exit_code == 0
+
+
+def test_processlet_join_zero():
+    job = Processlet.spawn(busy_waiting)
+    assert job.pid is None
+    job.join(0)
+    assert job.pid is not None
+    job.join()
 
 
 @pytest.mark.flaky(reruns=10)

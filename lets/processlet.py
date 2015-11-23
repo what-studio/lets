@@ -119,13 +119,13 @@ class Processlet(gevent.Greenlet):
             raise RuntimeError('Child process already started')
         self._queue.put((function, args, kwargs))
 
-    def _wait_for_started(self, timeout=None):
+    def _wait_starting(self, timeout=None):
         self._started.wait(timeout=timeout)
 
     def send(self, signo, block=True, timeout=None):
         """Sends a signal to the child process."""
         if block:
-            self._wait_for_started(timeout=timeout)
+            self._wait_starting(timeout=timeout)
         elif not self._started.is_set():
             self._call_when_started(self.send, signo, block=False)
             return
@@ -133,10 +133,18 @@ class Processlet(gevent.Greenlet):
         if block:
             self.join(timeout)
 
+    def join(self, timeout=None):
+        """Waits until finishes or timeout expires like a greenlet.  If you
+        set timeout as Zero, it waits until the child process starts.
+        """
+        if timeout == 0:
+            self._wait_starting()
+        return super(Processlet, self).join(timeout)
+
     def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
         """Kills the child process like a greenlet."""
         if block:
-            self._wait_for_started(timeout=timeout)
+            self._wait_starting(timeout=timeout)
         elif not self._started.is_set():
             self._call_when_started(self.kill, exception, block=False)
             return

@@ -9,10 +9,13 @@
    :license: BSD, see LICENSE for more details.
 
 """
-from gevent import GreenletExit
+import sys
+
+from gevent import GreenletExit, killall
+from gevent.event import Event
 
 
-__all__ = ['MasterGreenletExit', 'link_slave', 'spawn_slave',
+__all__ = ['MasterGreenletExit', 'join_slaves', 'link_slave', 'spawn_slave',
            'spawn_slave_later', 'link_partner', 'spawn_partner',
            'spawn_partner_later']
 
@@ -23,13 +26,52 @@ class MasterGreenletExit(GreenletExit):
     pass
 
 
-def link_slave(greenlet, slave):
+def join_slaves(greenlets, timeout=None, exception=MasterGreenletExit):
+    """Waits for the greenlets to finish just like :func:`gevent.joinall`.  But
+    the greenlets are treated as slave greenlets.
+
+    When it gets an exception during waiting, it kills the greenlets.  If
+    timeout is not given, it waits for them to finish again before raising the
+    exception.  So after calling it without timeout, always all the greenlets
+    are ready.
+
+    With timeout, it raises the exception immediately without waiting for the
+    killed greenlets.
+
+    :returns: a list of the ready greenlets.
+
+    """
+    active, done, empty_event = set(), [], Event()
+    def callback(g):
+        active.discard(g)
+        done.append(g)
+        if not active:
+            empty_event.set()
+    try:
+        for greenlet in greenlets:
+            active.add(greenlet)
+            greenlet.link(callback)
+        try:
+            empty_event.wait(timeout)
+        except:
+            exc_info = sys.exc_info()
+            killall(active, exception, block=False)
+            if timeout is None:
+                empty_event.wait()
+            raise exc_info[0], exc_info[1], exc_info[2]
+    finally:
+        for greenlet in greenlets:
+            greenlet.unlink(callback)
+    return done
+
+
+def link_slave(greenlet, slave, exception=MasterGreenletExit):
     """Links a greenlet greenlet and a slave greenlet.  Slave greenlet will be
     killed when the greenlet is ready.
     """
     def punish(greenlet):
         slave.unlink(liberate)
-        slave.kill(MasterGreenletExit, block=False)
+        slave.kill(exception, block=False)
     def liberate(slave):
         greenlet.unlink(punish)
     greenlet.link(punish)
@@ -54,15 +96,15 @@ def spawn_slave_later(greenlet, seconds, func, *args, **kwargs):
     return slave
 
 
-def link_partner(greenlet, partner):
+def link_partner(greenlet, partner, exception=MasterGreenletExit):
     """The greenlets will be killed when another greenlet is ready."""
-    link_slave(greenlet, partner)
-    link_slave(partner, greenlet)
+    link_slave(greenlet, partner, exception=exception)
+    link_slave(partner, greenlet, exception=exception)
 
 
 def spawn_partner(greenlet, func, *args, **kwargs):
-    """Spawns a partner greenlet. The greenlet and partner greenlets will die when
-    another greenlet is ready.
+    """Spawns a partner greenlet.  The greenlet and partner greenlets will die
+    when another greenlet is ready.
     """
     partner = greenlet.spawn(func, *args, **kwargs)
     link_partner(greenlet, partner)
@@ -70,8 +112,8 @@ def spawn_partner(greenlet, func, *args, **kwargs):
 
 
 def spawn_partner_later(greenlet, seconds, func, *args, **kwargs):
-    """Spawns a partner greenlet the given seconds later. The greenlet and partner
-    greenlets will die when another greenlet is ready.
+    """Spawns a partner greenlet the given seconds later.  The greenlet and
+    partner greenlets will die when another greenlet is ready.
     """
     partner = greenlet.spawn_later(seconds, func, *args, **kwargs)
     link_partner(greenlet, partner)

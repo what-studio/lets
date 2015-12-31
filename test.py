@@ -830,3 +830,111 @@ def test_spawn_slave_then_master_fails():
     slave_g.join()
     assert isinstance(master_g.exception, ZeroDivisionError)
     assert isinstance(slave_g.value, lets.MasterGreenletExit)
+
+
+def nested_greenlets(structure, root_timeout=None, leaf_timeout=100):
+    # Infer the root num.
+    root_num_candidates = set(structure.keys())
+    for slave_nums in structure.values():
+        root_num_candidates -= set(slave_nums)
+    if len(root_num_candidates) != 1:
+        raise ValueError('Root number inference failed')
+    num = list(root_num_candidates)[0]
+    started, finished, greenlets = [], [], []
+    def f(num, slaves=(), timeout=None):
+        started.append(num)
+        try:
+            if slaves:
+                return lets.join_slaves(slaves, timeout=timeout)
+            else:
+                gevent.sleep(leaf_timeout)
+                return ()
+        finally:
+            finished.append(num)
+    def spawn(num, timeout=None):
+        slaves = []
+        g = gevent.spawn(f, num, slaves, timeout)
+        greenlets.append(g)
+        try:
+            slave_nums = structure[num]
+        except KeyError:
+            pass
+        else:
+            for num in slave_nums:
+                slaves.append(spawn(num))
+        return g
+    # Spawn greenlets.
+    g = spawn(num, root_timeout)
+    g.join(0)
+    return started, finished, greenlets
+
+
+def test_join_slaves():
+    # 1--> 2--> 3
+    started, finished, (g1, g2, g3) = nested_greenlets({1: [2], 2: [3]})
+    assert started == [1, 2, 3]
+    assert not g3.ready()
+    assert finished == []
+    g1.join(0.1)
+    assert not g3.ready()
+    assert finished == []
+    g1.kill()
+    assert g3.ready()
+    assert finished == [3, 2, 1]
+    # 1-+-> 2--> 3
+    #   |
+    #   +-> 4--> 5
+    started, finished, (g1, g2, g3, g4, g5) = \
+        nested_greenlets({1: [2, 4], 2: [3], 4: [5]})
+    assert started == [1, 2, 3, 4, 5]
+    g2.kill()
+    assert g3.ready()
+    assert finished == [3, 2]
+    assert not g1.ready()
+    g4.kill()
+    g1.join(0)
+    assert g1.ready()
+    assert finished == [3, 2, 5, 4, 1]
+    # 1--> 2--> 3 but finishes normally.
+    started, finished, (g1, g2, g3) = \
+        nested_greenlets({1: [2], 2: [3]}, leaf_timeout=0.1)
+    assert started == [1, 2, 3]
+    assert finished == []
+    g1.join()
+    assert len(g1.get()) == 1
+    assert finished == [3, 2, 1]
+    # 1--> 2--> 3 but killed by another exception.
+    started, finished, (g1, g2, g3) = nested_greenlets({1: [2], 2: [3]})
+    assert started == [1, 2, 3]
+    g1.kill(ZeroDivisionError)
+    assert finished == [3, 2, 1]
+    assert g1.ready()
+    assert not g1.successful()
+    with pytest.raises(ZeroDivisionError):
+        g1.get()
+    assert g2.successful()
+    assert g3.successful()
+    # 1--> 2--> 3 but with tiemout.
+    started, finished, (g1, g2, g3) = \
+        nested_greenlets({1: [2], 2: [3]}, root_timeout=0.1)
+    assert len(g1.get()) == 0
+    assert finished == [1]
+    assert not g2.ready()
+    assert not g3.ready()
+    g2.kill()
+    assert finished == [1, 3, 2]
+    # 1--> 2--> 3 but killed within tiemout.
+    started, finished, (g1, g2, g3) = \
+        nested_greenlets({1: [2], 2: [3]}, root_timeout=1)
+    g1.join(0.1)
+    g1.kill(ZeroDivisionError)
+    assert not g2.ready()
+    assert not g3.ready()
+    g2.join()
+    assert g1.ready()
+    assert g2.ready()
+    assert g3.ready()
+    with pytest.raises(ZeroDivisionError):
+        g1.get()
+    assert isinstance(g2.get(), lets.MasterGreenletExit)
+    assert finished == [1, 3, 2]

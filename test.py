@@ -115,7 +115,10 @@ def test_processlet_join_zero():
 
 
 @pytest.mark.flaky(reruns=10)
-def test_processlet_parellel_execution():
+def test_processlet_parallel_execution():
+    cpu_count = multiprocessing.cpu_count()
+    if cpu_count < 2:
+        pytest.skip('CPU not enough')
     t = time.time()
     jobs = [gevent.spawn(busy_waiting) for x in range(5)]
     gevent.joinall(jobs)
@@ -127,7 +130,7 @@ def test_processlet_parellel_execution():
     jobs = [lets.Processlet.spawn(busy_waiting) for x in range(5)]
     gevent.joinall(jobs)
     delay = time.time() - t
-    assert delay < 0.1 * multiprocessing.cpu_count()
+    assert delay < 0.1 * cpu_count
     for job in jobs:
         assert job.get() == 0.1
 

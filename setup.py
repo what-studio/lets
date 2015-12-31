@@ -3,7 +3,7 @@
 Lets
 ~~~~
 
-Utilities for gevent_ 1.0.
+Utilities for gevent_.
 
 .. _gevent: http://gevent.org/
 
@@ -106,45 +106,37 @@ Links
 """
 from __future__ import with_statement
 
-import re
-import sys
+import os
 
 from setuptools import setup
-from setuptools.command.test import test as TestCommand
+from setuptools.command.test import test
 
 
 # prevent an error in atexit._run_exitfuncs.
 __import__('multiprocessing')
 
 
-# detect the current version.
-with open('lets/__init__.py') as f:
-    version = re.search(r'__version__\s*=\s*\'(.+?)\'', f.read()).group(1)
-assert version
+# include __about__.py.
+__dir__ = os.path.dirname(__file__)
+about = {}
+with open(os.path.join(__dir__, 'lets', '__about__.py')) as f:
+    exec(f.read(), about)
 
 
 # use pytest instead.
-class PyTest(TestCommand):
-
-    def finalize_options(self):
-        TestCommand.finalize_options(self)
-        self.test_args = []
-        self.test_suite = True
-
-    def run_tests(self):
-        import pytest
-        errno = pytest.main(self.test_args)
-        sys.exit(errno)
+def run_tests(self):
+    raise SystemExit(__import__('pytest').main(['-v']))
+test.run_tests = run_tests
 
 
 setup(
     name='lets',
-    version=version,
-    license='BSD',
-    author='Heungsub Lee',
-    author_email=re.sub('((sub).)(.*)', r'\2@\1.\3', 'sublee'),
+    version=about['__version__'],
+    license=about['__license__'],
+    author=about['__author__'],
+    author_email=about['__author_email__'],
     url='https://github.com/sublee/lets',
-    description='Several greenlet subclasses',
+    description='Several gevent utilities',
     long_description=__doc__,
     platforms='any',
     packages=['lets'],
@@ -160,5 +152,5 @@ setup(
                  'Topic :: Software Development'],
     install_requires=['gevent', 'gipc'],
     tests_require=['psutil', 'pytest', 'pytest-rerunfailures'],
-    cmdclass={'test': PyTest},
+    test_suite='...',
 )

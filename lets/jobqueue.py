@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-    lets.jobqueue
-    ~~~~~~~~~~~~~
+   lets.jobqueue
+   ~~~~~~~~~~~~~
 
-    :copyright: (c) 2013-2015 by Heungsub Lee
-    :license: BSD, see LICENSE for more details.
+   :copyright: (c) 2013-2015 by Heungsub Lee
+   :license: BSD, see LICENSE for more details.
 
 """
 import gevent

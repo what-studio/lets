@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-    lets.transparentlet
-    ~~~~~~~~~~~~~~~~~~~
+   lets.transparentlet
+   ~~~~~~~~~~~~~~~~~~~
 
-    Keeping exc_info rather than printing exception.
+   Keeping `exc_info` rather than printing exception.
 
-    :copyright: (c) 2013-2015 by Heungsub Lee
-    :license: BSD, see LICENSE for more details.
+   :copyright: (c) 2013-2015 by Heungsub Lee
+   :license: BSD, see LICENSE for more details.
 
 """
 from contextlib import contextmanager

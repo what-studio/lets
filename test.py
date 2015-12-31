@@ -17,9 +17,7 @@ import gipc
 import psutil
 import pytest
 
-from lets import (
-    JobQueue, ObjectPool, ProcessExit, Processlet, ProcessPool,
-    TransparentGroup, Transparentlet)
+import lets
 from lets.transparentlet import no_error_handling
 
 
@@ -32,10 +30,10 @@ def group(request):
         return Group()
     elif request.param == 'process_group':
         process_group = Group()
-        process_group.greenlet_class = Processlet
+        process_group.greenlet_class = lets.Processlet
         return process_group
     elif request.param == 'transparent_group':
-        return TransparentGroup()
+        return lets.TransparentGroup()
 
 
 @pytest.fixture
@@ -100,7 +98,7 @@ def get_pid_anyway(*args, **kwargs):
 
 
 def test_processlet_spawn_child_process():
-    job = Processlet.spawn(os.getppid)
+    job = lets.Processlet.spawn(os.getppid)
     job.join(0)
     assert job.exit_code is None
     assert job.pid != os.getpid()
@@ -109,7 +107,7 @@ def test_processlet_spawn_child_process():
 
 
 def test_processlet_join_zero():
-    job = Processlet.spawn(busy_waiting)
+    job = lets.Processlet.spawn(busy_waiting)
     assert job.pid is None
     job.join(0)
     assert job.pid is not None
@@ -126,7 +124,7 @@ def test_processlet_parellel_execution():
     for job in jobs:
         assert job.get() == 0.1
     t = time.time()
-    jobs = [Processlet.spawn(busy_waiting) for x in range(5)]
+    jobs = [lets.Processlet.spawn(busy_waiting) for x in range(5)]
     gevent.joinall(jobs)
     delay = time.time() - t
     assert delay < 0.1 * multiprocessing.cpu_count()
@@ -135,7 +133,7 @@ def test_processlet_parellel_execution():
 
 
 def test_processlet_exception():
-    job = Processlet.spawn(divide_by_zero)
+    job = lets.Processlet.spawn(divide_by_zero)
     with pytest.raises(ZeroDivisionError):
         job.get()
     assert job.exit_code == 1
@@ -144,19 +142,19 @@ def test_processlet_exception():
 def test_processlet_args():
     args = (1, 2)
     kwargs = {'x': 3, 'y': 4}
-    job = Processlet.spawn(return_args, *args, **kwargs)
+    job = lets.Processlet.spawn(return_args, *args, **kwargs)
     assert job.get() == (args, kwargs)
 
 
 def test_processlet_pipe_arg():
     with gipc.pipe() as (r, w):
-        job = Processlet.spawn(type(w).put, w, 1)
+        job = lets.Processlet.spawn(type(w).put, w, 1)
         assert r.get() == 1
         job.join()
 
 
 def test_processlet_without_start():
-    job = Processlet(os.getppid)
+    job = lets.Processlet(os.getppid)
     assert job.exit_code is None
     assert job.pid is None
     with pytest.raises(gevent.hub.LoopExit):
@@ -166,7 +164,7 @@ def test_processlet_without_start():
 
 
 def test_processlet_start_twice():
-    job = Processlet(random.random)
+    job = lets.Processlet(random.random)
     job.start()
     r1 = job.get()
     job.start()
@@ -180,7 +178,7 @@ def f_for_test_processlet_callback():
 
 
 def test_processlet_callback():
-    pool = ProcessPool(2)
+    pool = lets.ProcessPool(2)
     r = []
     with killing(pool):
         for x in range(10):
@@ -191,7 +189,7 @@ def test_processlet_callback():
 
 
 def test_kill_processlet(proc):
-    job = Processlet.spawn(raise_when_killed)
+    job = lets.Processlet.spawn(raise_when_killed)
     job.join(0)
     assert len(proc.children()) == 1
     job.kill()
@@ -202,7 +200,7 @@ def test_kill_processlet(proc):
 
 
 def test_kill_processlet_nonblock(proc):
-    job = Processlet.spawn(raise_when_killed)
+    job = lets.Processlet.spawn(raise_when_killed)
     job.join(0)
     assert len(proc.children()) == 1
     job.kill(block=False)
@@ -215,7 +213,7 @@ def test_kill_processlet_nonblock(proc):
 
 def test_kill_processlet_group(proc):
     group = Group()
-    group.greenlet_class = Processlet
+    group.greenlet_class = lets.Processlet
     group.spawn(raise_when_killed)
     group.spawn(raise_when_killed)
     group.spawn(raise_when_killed)
@@ -231,7 +229,7 @@ def test_kill_processlet_group(proc):
 
 def test_process_pool_recycles_child_process(proc):
     assert len(proc.children()) == 0
-    pool = ProcessPool(1)
+    pool = lets.ProcessPool(1)
     with killing(pool):
         pids = set()
         for x in xrange(10):
@@ -244,7 +242,7 @@ def test_process_pool_recycles_child_process(proc):
 
 def test_process_pool_size_limited(proc):
     assert len(proc.children()) == 0
-    pool = ProcessPool(2)
+    pool = lets.ProcessPool(2)
     with killing(pool):
         pool.spawn(busy_waiting, 0.1)
         pool.spawn(busy_waiting, 0.2)
@@ -259,7 +257,7 @@ def test_process_pool_size_limited(proc):
 
 def test_process_pool_waits_worker_available(proc):
     assert len(proc.children()) == 0
-    pool = ProcessPool(2)
+    pool = lets.ProcessPool(2)
     with killing(pool):
         with Timeout(0.1):
             pool.spawn(busy_waiting, 0.5)
@@ -274,7 +272,7 @@ def test_process_pool_waits_worker_available(proc):
 
 def test_process_pool_apply(proc):
     assert len(proc.children()) == 0
-    pool = ProcessPool(2)
+    pool = lets.ProcessPool(2)
     with killing(pool):
         pool.apply_async(busy_waiting, (0.2,))
         pool.apply_async(busy_waiting, (0.2,))
@@ -287,7 +285,7 @@ def test_process_pool_apply(proc):
 
 def test_process_pool_map(proc):
     assert len(proc.children()) == 0
-    pool = ProcessPool(3)
+    pool = lets.ProcessPool(3)
     with killing(pool):
         assert pool.map(busy_waiting, [0.1] * 5) == [0.1] * 5
         assert len(set(pool.map(get_pid_anyway, range(10)))) == 3
@@ -297,7 +295,7 @@ def test_process_pool_map(proc):
 
 def test_process_pool_unlimited(proc):
     assert len(proc.children()) == 0
-    pool = ProcessPool()
+    pool = lets.ProcessPool()
     with killing(pool):
         for x in range(5):
             pids = pool.map(get_pid_anyway, range(x + 1))
@@ -312,7 +310,7 @@ def test_process_pool_unlimited(proc):
 
 def test_process_pool_respawns_worker(proc):
     assert len(proc.children()) == 0
-    pool = ProcessPool(2)
+    pool = lets.ProcessPool(2)
     with killing(pool):
         pids1 = pool.map(get_pid_anyway, range(2))
         pool.kill()
@@ -323,7 +321,7 @@ def test_process_pool_respawns_worker(proc):
 
 def test_process_pool_raises(proc):
     assert len(proc.children()) == 0
-    pool = ProcessPool(1)
+    pool = lets.ProcessPool(1)
     with killing(pool):
         pid1 = pool.spawn(os.getpid).get()
         g = pool.spawn(divide_by_zero)
@@ -335,14 +333,14 @@ def test_process_pool_raises(proc):
 
 
 def test_transparentlet():
-    job = Transparentlet.spawn(divide_by_zero)
+    job = lets.Transparentlet.spawn(divide_by_zero)
     with pytest.raises(ZeroDivisionError) as e:
         job.get()
     assert e.traceback[-1].name == 'divide_by_zero'
 
 
 def test_transparentlet_doesnt_print_exception(capsys):
-    job = Transparentlet.spawn(divide_by_zero)
+    job = lets.Transparentlet.spawn(divide_by_zero)
     job.join()
     out, err = capsys.readouterr()
     assert not out
@@ -352,23 +350,23 @@ def test_transparentlet_doesnt_print_exception(capsys):
 @pytest.mark.skipif(gevent.__version__ == '1.1a2',
                     reason='Killed greenlet of gevent-1.1a2 raises nothing')
 def test_kill_transparentlet():
-    job = Transparentlet.spawn(divide_by_zero)
+    job = lets.Transparentlet.spawn(divide_by_zero)
     job.kill()
     assert isinstance(job.get(), GreenletExit)
-    job = Transparentlet.spawn(divide_by_zero)
+    job = lets.Transparentlet.spawn(divide_by_zero)
     job.kill(RuntimeError)
     with pytest.raises(RuntimeError):
         job.get()
 
 
 def test_transparentlet_no_leak():
-    ref = weakref.ref(Transparentlet.spawn(divide_by_zero))
+    ref = weakref.ref(lets.Transparentlet.spawn(divide_by_zero))
     gc.collect()
-    assert isinstance(ref(), Transparentlet)
+    assert isinstance(ref(), lets.Transparentlet)
     gevent.wait()
     gc.collect()
     assert ref() is None
-    job = Transparentlet(divide_by_zero)
+    job = lets.Transparentlet(divide_by_zero)
     assert sys.getrefcount(job) == 2  # variable 'job' (1) + argument (1)
     job.start()
     assert sys.getrefcount(job) == 3  # + hub (1)
@@ -383,7 +381,7 @@ def test_transparentlet_no_leak():
 
 
 def test_transparent_group():
-    group = TransparentGroup()
+    group = lets.TransparentGroup()
     group.spawn(divide_by_zero)
     group.spawn(divide_by_zero)
     with pytest.raises(ZeroDivisionError) as e:
@@ -454,36 +452,36 @@ def test_greenlet_system_exit():
 
 
 def test_processlet_system_exit():
-    job = Processlet.spawn(kill_itself)
+    job = lets.Processlet.spawn(kill_itself)
     gevent.spawn(gevent.sleep, 0.1).join()
-    with pytest.raises(ProcessExit) as e:
+    with pytest.raises(lets.ProcessExit) as e:
         job.get()
     assert e.value.code == -signal.SIGKILL
     assert job.exit_code == -signal.SIGKILL
-    job = Processlet.spawn(busy_waiting, 10)
+    job = lets.Processlet.spawn(busy_waiting, 10)
     job.send(signal.SIGTERM)
-    with pytest.raises(ProcessExit) as e:
+    with pytest.raises(lets.ProcessExit) as e:
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM
-    job = Processlet.spawn(raise_when_killed, SystemExit(42))
+    job = lets.Processlet.spawn(raise_when_killed, SystemExit(42))
     job.join(0)
     job.kill()
-    with pytest.raises(ProcessExit) as e:
+    with pytest.raises(lets.ProcessExit) as e:
         job.get()
     assert e.value.code == 42
     assert job.exit_code == 42
 
 
 def test_processlet_exits_by_sigint():
-    job = Processlet.spawn(busy_waiting, 10)
+    job = lets.Processlet.spawn(busy_waiting, 10)
     job.send(signal.SIGINT)
     job.join()
     assert isinstance(job.get(), gevent.GreenletExit)
 
 
 def test_transparentlet_system_exit():
-    job = Transparentlet.spawn(sys.exit)
+    job = lets.Transparentlet.spawn(sys.exit)
     gevent.spawn(gevent.sleep, 0.1).join()
     job.join()
     assert job.ready()
@@ -493,7 +491,7 @@ def test_transparentlet_system_exit():
 
 def test_object_pool():
     # getting object blocks
-    pool = ObjectPool(2, object)
+    pool = lets.ObjectPool(2, object)
     assert pool.available()
     o1 = pool.get()
     assert pool.available()
@@ -521,7 +519,7 @@ def test_object_pool():
 
 def test_object_pool_unlimited():
     # getting object blocks
-    pool = ObjectPool(None, object)
+    pool = lets.ObjectPool(None, object)
     assert pool.available()
     o1 = pool.get()
     assert pool.available()
@@ -544,7 +542,7 @@ def test_object_pool_unlimited():
 
 
 def test_object_pool_context():
-    pool = ObjectPool(1, object)
+    pool = lets.ObjectPool(1, object)
     assert pool.available()
     with pool.reserve() as o:
         assert type(o) is object
@@ -553,7 +551,7 @@ def test_object_pool_context():
 
 
 def test_object_pool_wait_available():
-    pool = ObjectPool(1, object)
+    pool = lets.ObjectPool(1, object)
     o = pool.get()
     waiting_avaiable = gevent.spawn(pool.wait_available)
     waiting_avaiable.join(0.1)
@@ -568,7 +566,7 @@ def test_object_pool_rotation():
     def f():
         counter[0] += 1
         return counter[0]
-    pool = ObjectPool(3, f)
+    pool = lets.ObjectPool(3, f)
     assert pool.get() == 1
     assert pool.get() == 2
     assert pool.get() == 3
@@ -589,7 +587,7 @@ def test_object_pool_with_slow_behaviors():
     def slow():
         gevent.sleep(0.1)
         return object()
-    pool = ObjectPool(2, slow)
+    pool = lets.ObjectPool(2, slow)
     def consume_obj_from_pool():
         with pool.reserve():
             gevent.sleep(0.1)
@@ -602,7 +600,7 @@ def test_job_queue():
     def f(x, delay=0):
         gevent.sleep(delay)
         results.append(x)
-    queue = JobQueue()
+    queue = lets.JobQueue()
     with pytest.raises(ValueError):
         queue.put(Greenlet.spawn())
     queue.put(Greenlet(f, 1, 0.1))
@@ -620,7 +618,7 @@ def test_job_queue_with_multiple_workers():
         results.append(x)
     for workers, expected in [(1, [1, 2, 3, 4]), (2, [1, 3, 4, 2]),
                               (3, [1, 4, 3, 2]), (4, [1, 4, 3, 2])]:
-        queue = JobQueue(workers=workers)
+        queue = lets.JobQueue(workers=workers)
         queue.put(Greenlet(f, 1, 0.01))
         queue.put(Greenlet(f, 2, 0.06))
         queue.put(Greenlet(f, 3, 0.03))
@@ -635,7 +633,7 @@ def test_job_queue_sized():
     def f(x, delay=0):
         gevent.sleep(delay)
         results.append(x)
-    queue = JobQueue(2)
+    queue = lets.JobQueue(2)
     queue.put(Greenlet(f, 1, 0.1))
     queue.put(Greenlet(f, 2, 0.1))
     queue.put(Greenlet(f, 3, 0.1))
@@ -653,7 +651,7 @@ def test_job_queue_exited():
         gevent.sleep(delay)
         results.append(x)
         return x
-    queue = JobQueue()
+    queue = lets.JobQueue()
     g1 = Greenlet(f, 1, 0.1)
     g2 = Greenlet(f, 2, 0.1)
     queue.put(g1)
@@ -670,7 +668,7 @@ def test_job_queue_kill_with_error():
     def f():
         gevent.sleep(999)
     g = Greenlet(f)
-    queue = JobQueue()
+    queue = lets.JobQueue()
     queue.put(g)
     queue.kill(ExpectedError)
     with pytest.raises(ExpectedError):
@@ -683,7 +681,7 @@ def test_job_queue_kill_before_working():
     g = Greenlet(f)
     g.done = False
     g.link(lambda g: setattr(g, 'done', True))
-    queue = JobQueue()
+    queue = lets.JobQueue()
     queue.put(g)
     assert not g.done
     queue.kill()
@@ -691,7 +689,7 @@ def test_job_queue_kill_before_working():
 
 
 def test_job_queue_guarantees_all_jobs():
-    queue = JobQueue()
+    queue = lets.JobQueue()
     xs = []
     def f(x):
         gevent.sleep(0.01)
@@ -708,3 +706,127 @@ def test_job_queue_guarantees_all_jobs():
     queue.put(Greenlet(f, 3))
     queue.join()
     assert xs == [0, 1, 2, 3]
+
+
+def test_link_slave():
+    def slave():
+        gevent.sleep(100)
+    def master():
+        master_g = gevent.getcurrent()
+        slave_g = gevent.spawn(slave)
+        lets.link_slave(master_g, slave_g)
+        greenlets.append(slave_g)
+        gevent.sleep(0.1)
+        return 'success'
+    greenlets = []
+    greenlets.append(gevent.spawn(master))
+    assert len(greenlets) == 1
+    greenlets[0].join(0)
+    assert len(greenlets) == 2
+    gevent.joinall(greenlets)
+    assert greenlets[0].value == 'success'
+    assert isinstance(greenlets[1].value, lets.MasterGreenletExit)
+
+
+def test_link_partner():
+    def f(delay):
+        gevent.sleep(delay)
+        return 'ok'
+    g1 = gevent.spawn(f, 10)
+    g2 = gevent.spawn(f, 0.1)
+    lets.link_partner(g1, g2)
+    g2.join()
+    assert g2.get() == 'ok'
+    g1.join(timeout=0.1)
+    assert g1.ready()
+    assert isinstance(g1.get(), lets.MasterGreenletExit)
+    g1 = gevent.spawn(f, 10)
+    g2 = lets.spawn_partner(g1, f, 10)
+    g1.kill()
+    assert isinstance(g1.get(), gevent.GreenletExit)
+    g2.join(timeout=0.1)
+    assert g2.ready()
+    assert isinstance(g2.get(), lets.MasterGreenletExit)
+
+
+def test_spawn_slave():
+    def slave():
+        gevent.sleep(100)
+    def master():
+        master_g = gevent.getcurrent()
+        greenlets.append(lets.spawn_slave(master_g, slave))
+        gevent.sleep(0.1)
+        return 'success'
+    greenlets = []
+    greenlets.append(gevent.spawn(master))
+    assert len(greenlets) == 1
+    greenlets[0].join(0)
+    assert len(greenlets) == 2
+    gevent.joinall(greenlets)
+    assert greenlets[0].value == 'success'
+    assert isinstance(greenlets[1].value, lets.MasterGreenletExit)
+
+
+def test_spawn_slave_which_is_short_term():
+    def slave():
+        gevent.sleep(0.1)
+        return 'slave'
+    def master():
+        master_g = gevent.getcurrent()
+        greenlets.append(lets.spawn_slave(master_g, slave))
+        gevent.sleep(0.3)
+        return 'master'
+    greenlets = []
+    greenlets.append(gevent.spawn(master))
+    assert len(greenlets) == 1
+    greenlets[0].join(0)
+    assert len(greenlets) == 2
+    master_g, slave_g = greenlets
+    assert len(master_g._links) == 1
+    assert not master_g.ready()
+    assert not slave_g.ready()
+    slave_g.join()
+    assert slave_g.ready()
+    assert not master_g.ready()
+    assert len(master_g._links) == 0
+    assert slave_g.value == 'slave'
+    master_g.join()
+    assert master_g.value == 'master'
+
+
+def test_spawn_slave_then_kill_master():
+    def slave():
+        gevent.sleep(100)
+        return 'slave'
+    def master():
+        master_g = gevent.getcurrent()
+        tmp.append(lets.spawn_slave(master_g, slave))
+        gevent.sleep(100)
+        return 'master'
+    tmp = []
+    master_g = gevent.spawn(master)
+    master_g.join(0)
+    slave_g = tmp[0]
+    master_g.kill(ZeroDivisionError)
+    slave_g.join()
+    assert isinstance(master_g.exception, ZeroDivisionError)
+    assert isinstance(slave_g.value, lets.MasterGreenletExit)
+
+
+def test_spawn_slave_then_master_fails():
+    def slave():
+        gevent.sleep(100)
+        return 'slave'
+    def master():
+        master_g = gevent.getcurrent()
+        tmp.append(lets.spawn_slave(master_g, slave))
+        gevent.sleep(0.1)
+        0 / 0
+    tmp = []
+    master_g = gevent.spawn(master)
+    master_g.join(0)
+    slave_g = tmp[0]
+    master_g.kill(ZeroDivisionError)
+    slave_g.join()
+    assert isinstance(master_g.exception, ZeroDivisionError)
+    assert isinstance(slave_g.value, lets.MasterGreenletExit)

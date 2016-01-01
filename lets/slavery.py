@@ -20,6 +20,19 @@ __all__ = ['MasterGreenletExit', 'join_slaves', 'link_slave', 'spawn_slave',
            'spawn_partner_later']
 
 
+try:
+    killall(set([None]))
+except AttributeError:
+    # The expected error.
+    pass
+except TypeError:
+    # killall() of gevent<=1.1a1 couldn't accept an arbitrary iterable.
+    # https://github.com/gevent/gevent/issues/404
+    _killall = killall
+    def killall(greenlets, *args, **kwargs):
+        return _killall(list(greenlets), *args, **kwargs)
+
+
 class MasterGreenletExit(GreenletExit):
     """Slave greenlet should exit when the master greenlet is ready."""
 

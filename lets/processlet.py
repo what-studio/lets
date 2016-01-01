@@ -35,7 +35,7 @@
       proc = Processlet.spawn(hash_password, 'my_password')
       hash = proc.get()
 
-   :copyright: (c) 2013-2015 by Heungsub Lee
+   :copyright: (c) 2013-2016 by Heungsub Lee
    :license: BSD, see LICENSE for more details.
 
 """

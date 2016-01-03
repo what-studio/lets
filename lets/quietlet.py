@@ -10,13 +10,21 @@
    :license: BSD, see LICENSE for more details.
 
 """
+from __future__ import absolute_import
+
 from contextlib import contextmanager
+import types
 
 import gevent.hub
 from greenlet import greenlet
 
+from .utils import greenlet_parent_manager
+
 
 __all__ = ['Quietlet', 'quiet']
+
+
+noop = lambda *args: None
 
 
 class Quietlet(gevent.Greenlet):
@@ -34,48 +42,14 @@ class Quietlet(gevent.Greenlet):
             super(Quietlet, self)._report_error(exc_info)
 
 
-class QuietHub(greenlet):
-
-    def __init__(self, hub):
-        super(QuietHub, self).__init__(None, hub)
-
-    @property
-    def hub(self):
-        return self.parent
-
-    @property
-    def loop(self):
-        return self.hub.loop
-
-    def handle_error(self, *args):
-        pass
-
-
-def quiet(greenlet=None):
+@greenlet_parent_manager
+def quiet(parent):
     """The gevent hub prints greenlet exception to stderr and handles system
     errors.  This context makes the hub do not interest in greenlet errors.
     """
-    if greenlet is None:
-        return _quiet_hub()
-    else:
-        return _quiet_greenlet(greenlet)
-
-
-@contextmanager
-def _quiet_hub():
-    hub = gevent.hub.get_hub()
-    gevent.hub.set_hub(QuietHub(hub))
+    handle_error = parent.handle_error
+    parent.handle_error = noop
     try:
         yield
     finally:
-        gevent.hub.set_hub(hub)
-
-
-@contextmanager
-def _quiet_greenlet(greenlet):
-    parent = greenlet.parent
-    greenlet.parent = QuietHub(greenlet.parent)
-    try:
-        yield
-    finally:
-        greenlet.parent = parent
+        parent.handle_error = handle_error

@@ -430,21 +430,36 @@ def test_task_kills_group(proc, group):
 
 
 def test_quiet_context(capsys):
-    # print exception
+    # Print the exception.
     gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
     assert 'ZeroDivisionError' in err
-    # don't print
+    # Don't print.
     with quiet():
         gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
     assert not err
-    # don't print also
+    # Don't print also.
     gevent.spawn(divide_by_zero)
     with quiet():
         gevent.wait()
     out, err = capsys.readouterr()
     assert not err
+    # quiet() context in a greenlet doesn't print also.
+    def f():
+        with quiet():
+            gevent.spawn(divide_by_zero).join()
+    gevent.spawn(f).join()
+    out, err = capsys.readouterr()
+    assert not err
+    # Out of quiet() context in a greenlet prints.
+    def f():
+        with quiet():
+            gevent.spawn(divide_by_zero).join()
+        0 / 0
+    gevent.spawn(f).join()
+    out, err = capsys.readouterr()
+    assert 'ZeroDivisionError' in err
 
 
 def test_greenlet_system_exit():

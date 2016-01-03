@@ -18,13 +18,10 @@ import types
 import gevent.hub
 from greenlet import greenlet
 
-from .utils import greenlet_parent_manager
+from .utils import hub_replacer
 
 
 __all__ = ['Quietlet', 'quiet']
-
-
-noop = lambda *args: None
 
 
 class Quietlet(gevent.Greenlet):
@@ -42,14 +39,22 @@ class Quietlet(gevent.Greenlet):
             super(Quietlet, self)._report_error(exc_info)
 
 
-@greenlet_parent_manager
-def quiet(parent):
+class QuietHub(gevent.hub.Hub):
+
+    def __init__(self, hub):
+        greenlet.__init__(self, parent=hub.parent)
+        self.hub = hub
+
+    def __getattr__(self, attr):
+        return getattr(self.hub, attr)
+
+    def handle_error(self, *args):
+        pass
+
+
+@hub_replacer
+def quiet(hub):
     """The gevent hub prints greenlet exception to stderr and handles system
-    errors.  This context makes the hub do not interest in greenlet errors.
+    errors.  This context makes the hub do not interest in any greenlet errors.
     """
-    handle_error = parent.handle_error
-    parent.handle_error = noop
-    try:
-        yield
-    finally:
-        parent.handle_error = handle_error
+    yield QuietHub(hub)

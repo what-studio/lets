@@ -13,25 +13,38 @@ import functools
 import gevent.hub
 
 
-__all__ = ['greenlet_parent_manager']
+__all__ = ['hub_replacer']
 
 
-def greenlet_parent_manager(f):
+def final_next(gen):
+    try:
+        next(gen)
+    except StopIteration:
+        pass
+    else:
+        raise RuntimeError('Generator didn\'t stop')
+
+
+def hub_replacer(f):
     @contextlib.contextmanager
     @functools.wraps(f)
-    def manage_greenlet_parent(greenlet=None):
-        if greenlet is None:
-            parent = gevent.hub.get_hub()
+    def replace_hub(greenlet=None):
+        # Get the current hub.
+        if greenlet is None or greenlet.parent is None:
+            hub = gevent.hub.get_hub()
         else:
-            parent = greenlet.parent
-        gen = f(parent)
+            hub = greenlet.parent
+        # How set a new hub.
+        if greenlet is None:
+            set_hub = gevent.hub.set_hub
+        else:
+            set_hub = lambda hub: setattr(greenlet, 'parent', hub)
+        gen = f(hub)
+        new_hub = next(gen)
+        set_hub(new_hub)
         try:
-            yield next(gen)
+            yield new_hub
         finally:
-            try:
-                next(gen)
-            except StopIteration:
-                pass
-            else:
-                raise TypeError('greenlet_parent_manager must yield 1 time')
-    return manage_greenlet_parent
+            set_hub(hub)
+            final_next(gen)
+    return replace_hub

@@ -440,11 +440,11 @@ def test_quiet_context(capsys):
     out, err = capsys.readouterr()
     assert not err
     # Don't print also.
-    gevent.spawn(divide_by_zero)
-    with quiet():
-        gevent.wait()
-    out, err = capsys.readouterr()
-    assert not err
+    # gevent.spawn(divide_by_zero)
+    # with quiet():
+    #     gevent.wait()
+    # out, err = capsys.readouterr()
+    # assert not err
     # quiet() context in a greenlet doesn't print also.
     def f():
         with quiet():

@@ -460,6 +460,12 @@ def test_quiet_context(capsys):
     gevent.spawn(f).join()
     out, err = capsys.readouterr()
     assert 'ZeroDivisionError' in err
+    # quiet() context with a greenlet doesn't print.
+    g = gevent.spawn(divide_by_zero)
+    with quiet(g):
+        g.join()
+    out, err = capsys.readouterr()
+    assert not err
 
 
 def test_greenlet_system_exit():

@@ -12,13 +12,9 @@
 """
 from __future__ import absolute_import
 
-from contextlib import contextmanager
-import types
-
 import gevent.hub
-from greenlet import greenlet
 
-from .utils import hub_replacer
+from .utils import hub_replacer, HubWrapper
 
 
 __all__ = ['Quietlet', 'quiet']
@@ -39,14 +35,7 @@ class Quietlet(gevent.Greenlet):
             super(Quietlet, self)._report_error(exc_info)
 
 
-class QuietHub(gevent.hub.Hub):
-
-    def __init__(self, hub):
-        greenlet.__init__(self, parent=hub.parent)
-        self.hub = hub
-
-    def __getattr__(self, attr):
-        return getattr(self.hub, attr)
+class QuietHub(HubWrapper):
 
     def handle_error(self, *args):
         pass

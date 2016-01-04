@@ -18,10 +18,10 @@ import psutil
 import pytest
 
 import lets
-from lets.transparentlet import no_error_handling
+from lets.quietlet import quiet
 
 
-group_names = ['greenlet_group', 'process_group', 'transparent_group']
+group_names = ['greenlet_group', 'process_group']
 
 
 @pytest.fixture(params=group_names)
@@ -32,8 +32,6 @@ def group(request):
         process_group = Group()
         process_group.greenlet_class = lets.Processlet
         return process_group
-    elif request.param == 'transparent_group':
-        return lets.TransparentGroup()
 
 
 @pytest.fixture
@@ -335,15 +333,15 @@ def test_process_pool_raises(proc):
     assert len(proc.children()) == 0
 
 
-def test_transparentlet():
-    job = lets.Transparentlet.spawn(divide_by_zero)
+def test_quietlet():
+    job = lets.Quietlet.spawn(divide_by_zero)
     with pytest.raises(ZeroDivisionError) as e:
         job.get()
     assert e.traceback[-1].name == 'divide_by_zero'
 
 
-def test_transparentlet_doesnt_print_exception(capsys):
-    job = lets.Transparentlet.spawn(divide_by_zero)
+def test_quietlet_doesnt_print_exception(capsys):
+    job = lets.Quietlet.spawn(divide_by_zero)
     job.join()
     out, err = capsys.readouterr()
     assert not out
@@ -352,39 +350,40 @@ def test_transparentlet_doesnt_print_exception(capsys):
 
 @pytest.mark.skipif(gevent.__version__ == '1.1a2',
                     reason='Killed greenlet of gevent-1.1a2 raises nothing')
-def test_kill_transparentlet():
-    job = lets.Transparentlet.spawn(divide_by_zero)
+def test_kill_quietlet():
+    job = lets.Quietlet.spawn(divide_by_zero)
     job.kill()
     assert isinstance(job.get(), GreenletExit)
-    job = lets.Transparentlet.spawn(divide_by_zero)
+    job = lets.Quietlet.spawn(divide_by_zero)
     job.kill(RuntimeError)
     with pytest.raises(RuntimeError):
         job.get()
 
 
-def test_transparentlet_no_leak():
-    ref = weakref.ref(lets.Transparentlet.spawn(divide_by_zero))
+def test_quietlet_no_leak():
+    ref = weakref.ref(lets.Quietlet.spawn(divide_by_zero))
     gc.collect()
-    assert isinstance(ref(), lets.Transparentlet)
+    assert isinstance(ref(), lets.Quietlet)
     gevent.wait()
     gc.collect()
     assert ref() is None
-    job = lets.Transparentlet(divide_by_zero)
+    job = lets.Quietlet(divide_by_zero)
     assert sys.getrefcount(job) == 2  # variable 'job' (1) + argument (1)
     job.start()
     assert sys.getrefcount(job) == 3  # + hub (1)
     job.join()
-    assert sys.getrefcount(job) == 7  # + gevent (3) + traceback (1)
+    assert sys.getrefcount(job) == 6  # + gevent (3)
     gevent.sleep(0)
-    assert sys.getrefcount(job) == 3  # - gevent (3) - hub (1)
+    assert sys.getrefcount(job) == 2  # - gevent (3) - hub (1)
     ref = weakref.ref(job)
     del job
     gc.collect()
     assert ref() is None
 
 
-def test_transparent_group():
-    group = lets.TransparentGroup()
+def test_quiet_group():
+    from gevent.pool import Group
+    group = Group()
     group.spawn(divide_by_zero)
     group.spawn(divide_by_zero)
     with pytest.raises(ZeroDivisionError) as e:
@@ -430,22 +429,37 @@ def test_task_kills_group(proc, group):
     assert isinstance(g3.exception, RuntimeError)
 
 
-def test_no_error_handling(capsys):
-    # print exception
+def test_quiet_context(capsys):
+    # Print the exception.
     gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
     assert 'ZeroDivisionError' in err
-    # don't print
-    with no_error_handling():
+    # Don't print.
+    with quiet():
         gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
     assert not err
-    # don't print also
-    gevent.spawn(divide_by_zero)
-    with no_error_handling():
-        gevent.wait()
+    # Don't print also.
+    # gevent.spawn(divide_by_zero)
+    # with quiet():
+    #     gevent.wait()
+    # out, err = capsys.readouterr()
+    # assert not err
+    # quiet() context in a greenlet doesn't print also.
+    def f():
+        with quiet():
+            gevent.spawn(divide_by_zero).join()
+    gevent.spawn(f).join()
     out, err = capsys.readouterr()
     assert not err
+    # Out of quiet() context in a greenlet prints.
+    def f():
+        with quiet():
+            gevent.spawn(divide_by_zero).join()
+        0 / 0
+    gevent.spawn(f).join()
+    out, err = capsys.readouterr()
+    assert 'ZeroDivisionError' in err
 
 
 def test_greenlet_system_exit():
@@ -483,8 +497,8 @@ def test_processlet_exits_by_sigint():
     assert isinstance(job.get(), gevent.GreenletExit)
 
 
-def test_transparentlet_system_exit():
-    job = lets.Transparentlet.spawn(sys.exit)
+def test_quietlet_system_exit():
+    job = lets.Quietlet.spawn(sys.exit)
     gevent.spawn(gevent.sleep, 0.1).join()
     job.join()
     assert job.ready()

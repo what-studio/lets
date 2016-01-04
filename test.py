@@ -966,50 +966,60 @@ def test_join_slaves():
 
 
 def test_atomic():
+    # NOTE: Nested context by comma is not available in Python 2.6.
     # o -- No gevent.
     with lets.atomic():
         1 + 2 + 3
     # x -- gevent.sleep()
-    with pytest.raises(AssertionError), lets.atomic():
-        gevent.sleep(0.1)
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            gevent.sleep(0.1)
     # x -- gevent.sleep() with 0 seconds.
-    with pytest.raises(AssertionError), lets.atomic():
-        gevent.sleep(0)
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            gevent.sleep(0)
     # o -- Greenlet.spawn()
     with lets.atomic():
         gevent.spawn(gevent.sleep, 0.1)
     # x -- Greenlet.join()
-    with pytest.raises(AssertionError), lets.atomic():
-        g = gevent.spawn(gevent.sleep, 0.1)
-        g.join()
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            g = gevent.spawn(gevent.sleep, 0.1)
+            g.join()
     # x -- Greenlet.get()
-    with pytest.raises(AssertionError), lets.atomic():
-        g = gevent.spawn(gevent.sleep, 0.1)
-        g.get()
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            g = gevent.spawn(gevent.sleep, 0.1)
+            g.get()
     # x -- gevent.joinall()
-    with pytest.raises(AssertionError), lets.atomic():
-        g = gevent.spawn(gevent.sleep, 0.1)
-        gevent.joinall([g])
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            g = gevent.spawn(gevent.sleep, 0.1)
+            gevent.joinall([g])
     # o -- Event.set(), AsyncResult.set()
     with lets.atomic():
         Event().set()
         AsyncResult().set()
     # x -- Event.wait()
-    with pytest.raises(AssertionError), lets.atomic():
-        Event().wait()
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            Event().wait()
     # x -- Event.wait()
-    with pytest.raises(AssertionError), lets.atomic():
-        AsyncResult().wait()
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            AsyncResult().wait()
     # x -- Channel.put()
-    with pytest.raises(AssertionError), lets.atomic():
-        ch = Channel()
-        ch.put(123)
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            ch = Channel()
+            ch.put(123)
     # o -- First Semaphore.acquire()
     with lets.atomic():
         lock = Semaphore()
         lock.acquire()
     # x -- Second Semaphore.acquire()
-    with pytest.raises(AssertionError), lets.atomic():
-        lock = Semaphore()
-        lock.acquire()
-        lock.acquire()
+    with pytest.raises(AssertionError):
+        with lets.atomic():
+            lock = Semaphore()
+            lock.acquire()
+            lock.acquire()

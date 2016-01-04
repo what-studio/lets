@@ -12,7 +12,7 @@
 """
 from __future__ import absolute_import
 
-import gevent.hub
+import gevent
 
 from .utils import hub_replacer, HubWrapper
 
@@ -21,16 +21,9 @@ __all__ = ['Quietlet', 'quiet']
 
 
 class Quietlet(gevent.Greenlet):
-    """Saves the actual exc_info when the function raises some exception.  It
-    doesn't print exception to stderr.  Consider to use this.  It saves heavy
-    traceback object also.
-    """
+    """A greenlet but it doesn't report exceptions to the hub."""
 
     def _report_error(self, exc_info):
-        """Same with :meth:`gevent.Greenlet._report_error` but saves exc_info
-        event a traceback object and doesn't call the parent's
-        ``handle_error``.
-        """
         with quiet(self):
             super(Quietlet, self)._report_error(exc_info)
 
@@ -43,7 +36,11 @@ class QuietHub(HubWrapper):
 
 @hub_replacer
 def quiet(hub):
-    """The gevent hub prints greenlet exception to stderr and handles system
-    errors.  This context makes the hub do not interest in any greenlet errors.
+    """Makes a context which suppresses the greenlet exception handler.
+
+    The gevent hub handles exceptions from a greenlet by default.  If the
+    exception is a system error, it will be propagated to the main greenlet.
+    Otherwise, the exception will be printed to stderr.
+
     """
     yield QuietHub(hub)

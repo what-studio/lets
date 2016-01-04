@@ -11,8 +11,10 @@ import weakref
 
 import gevent
 from gevent import Greenlet, GreenletExit, Timeout
+from gevent.event import AsyncResult, Event
+from gevent.lock import Semaphore
 from gevent.pool import Group
-from gevent.queue import Full
+from gevent.queue import Channel, Full
 import gipc
 import psutil
 import pytest
@@ -961,3 +963,53 @@ def test_join_slaves():
         g1.get()
     assert isinstance(g2.get(), lets.MasterGreenletExit)
     assert finished == [1, 3, 2]
+
+
+def test_atomic():
+    # o -- No gevent.
+    with lets.atomic():
+        1 + 2 + 3
+    # x -- gevent.sleep()
+    with pytest.raises(AssertionError), lets.atomic():
+        gevent.sleep(0.1)
+    # x -- gevent.sleep() with 0 seconds.
+    with pytest.raises(AssertionError), lets.atomic():
+        gevent.sleep(0)
+    # o -- Greenlet.spawn()
+    with lets.atomic():
+        gevent.spawn(gevent.sleep, 0.1)
+    # x -- Greenlet.join()
+    with pytest.raises(AssertionError), lets.atomic():
+        g = gevent.spawn(gevent.sleep, 0.1)
+        g.join()
+    # x -- Greenlet.get()
+    with pytest.raises(AssertionError), lets.atomic():
+        g = gevent.spawn(gevent.sleep, 0.1)
+        g.get()
+    # x -- gevent.joinall()
+    with pytest.raises(AssertionError), lets.atomic():
+        g = gevent.spawn(gevent.sleep, 0.1)
+        gevent.joinall([g])
+    # o -- Event.set(), AsyncResult.set()
+    with lets.atomic():
+        Event().set()
+        AsyncResult().set()
+    # x -- Event.wait()
+    with pytest.raises(AssertionError), lets.atomic():
+        Event().wait()
+    # x -- Event.wait()
+    with pytest.raises(AssertionError), lets.atomic():
+        AsyncResult().wait()
+    # x -- Channel.put()
+    with pytest.raises(AssertionError), lets.atomic():
+        ch = Channel()
+        ch.put(123)
+    # o -- First Semaphore.acquire()
+    with lets.atomic():
+        lock = Semaphore()
+        lock.acquire()
+    # x -- Second Semaphore.acquire()
+    with pytest.raises(AssertionError), lets.atomic():
+        lock = Semaphore()
+        lock.acquire()
+        lock.acquire()

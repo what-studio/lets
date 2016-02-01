@@ -965,6 +965,12 @@ def test_join_slaves():
     assert finished == [1, 3, 2]
 
 
+def test_join_slaves_without_greenlets():
+    # It was timed out at lets-0.0.17
+    with gevent.Timeout(0.1, AssertionError('lets.join_slaves() hangs')):
+        lets.join_slaves([], timeout=1)
+
+
 def test_atomic():
     # NOTE: Nested context by comma is not available in Python 2.6.
     # o -- No gevent.

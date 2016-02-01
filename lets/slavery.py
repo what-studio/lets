@@ -54,6 +54,8 @@ def join_slaves(greenlets, timeout=None, exception=MasterGreenletExit):
     :returns: a list of the ready greenlets.
 
     """
+    if not greenlets:
+        return []
     active, done, empty_event = set(), [], Event()
     def callback(g):
         active.discard(g)

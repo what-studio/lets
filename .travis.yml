@@ -17,6 +17,7 @@ env:
   - GEVENT_VERSION=1.1b1 GIPC_VERSION=0.6.0
   - GEVENT_VERSION=1.1a2 GIPC_VERSION=0.5.0
 install:
+- pip install -U pytest
 - pip install coveralls
 - |
   if [[ -z "$GEVENT_VERSION" ]]; then

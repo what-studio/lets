@@ -57,8 +57,7 @@ import gipc
 from .objectpool import ObjectPool
 
 
-__all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal',
-           'ProcessLocalObjectPool']
+__all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal']
 
 
 class ProcessExit(BaseException):
@@ -334,28 +333,3 @@ class ProcessLocal(gevent.local.local):
     def __delattr__(self, attr):
         with _patch(self):
             return object.__delattr__(self, attr)
-
-
-class ProcessLocalObjectPool(object):
-    """Process-local object pool."""
-
-    __slots__ = ['size', 'function', 'args', 'kwargs', '_local']
-
-    def __init__(self, size, function, *args, **kwargs):
-        self.size = size
-        self.function = function
-        self.args = args
-        self.kwargs = kwargs
-        self._local = ProcessLocal()
-
-    @property
-    def pool(self):
-        try:
-            return self._local.pool
-        except AttributeError:
-            self._local.pool = ObjectPool(self.size, self.function,
-                                          *self.args, **self.kwargs)
-            return self._local.pool
-
-    def __getattr__(self, attr):
-        return getattr(self.pool, attr)

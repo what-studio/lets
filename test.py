@@ -1050,16 +1050,3 @@ def test_process_local():
                      (lets.Processlet.spawn, assert_no_hello_after_access),
                      (spawn_again, assert_hello_world)]:
         spawn(f).get()
-
-
-def test_process_local_object_pool():
-    pool = lets.ProcessLocalObjectPool(1, object)
-    with pool.reserve() as obj:
-        obj_id = id(obj)
-    def check(same_id):
-        with pool.reserve() as obj:
-            assert bool(id(obj) == obj_id) is same_id
-    for spawn, same_id in [(gevent.spawn, True),
-                           (lets.Processlet.spawn, False),
-                           (spawn_again, True)]:
-        spawn(check, same_id=same_id).get()

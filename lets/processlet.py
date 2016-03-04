@@ -41,6 +41,7 @@
 """
 from __future__ import absolute_import
 
+from contextlib import contextmanager
 import os
 import signal
 import sys
@@ -48,6 +49,7 @@ import warnings
 
 import gevent
 import gevent.event
+import gevent.local
 import gevent.pool
 import gevent.queue
 import gipc
@@ -55,7 +57,8 @@ import gipc
 from .objectpool import ObjectPool
 
 
-__all__ = ['ProcessExit', 'Processlet', 'ProcessPool']
+__all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal',
+           'ProcessLocalObjectPool']
 
 
 class ProcessExit(BaseException):
@@ -284,3 +287,75 @@ class ProcessPool(gevent.pool.Pool):
         """Unregisters the worker.  Used for rawlink."""
         worker.unlink(self._discard_worker)
         self._worker_pool.discard(worker)
+
+
+class KeepDict(BaseException):
+
+    pass
+
+
+@contextmanager
+def _patch(self):
+    pid = os.getpid()
+    local_pid = object.__getattribute__(self, '_local__pid')
+    if local_pid == pid:
+        # Don't work as thread-local on the same process.
+        yield
+    else:
+        object.__setattr__(self, '_local__pid', pid)
+        try:
+            with gevent.local._patch(self):
+                yield
+                # Don't recover the previous local __dict__ by _patch() to
+                # keep the current one.
+                raise KeepDict
+        except KeepDict:
+            pass
+
+
+class ProcessLocal(gevent.local.local):
+    """Process-local object."""
+
+    __slots__ = ('_local__impl', '_local__pid')
+
+    def __new__(cls, *args, **kwargs):
+        self = super(ProcessLocal, cls).__new__(cls, *args, **kwargs)
+        object.__setattr__(self, '_local__pid', os.getpid())
+        return self
+
+    def __getattribute__(self, attr):
+        with _patch(self):
+            return object.__getattribute__(self, attr)
+
+    def __setattr__(self, attr, value):
+        with _patch(self):
+            return object.__setattr__(self, attr, value)
+
+    def __delattr__(self, attr):
+        with _patch(self):
+            return object.__delattr__(self, attr)
+
+
+class ProcessLocalObjectPool(object):
+    """Process-local object pool."""
+
+    __slots__ = ['size', 'function', 'args', 'kwargs', '_local']
+
+    def __init__(self, size, function, *args, **kwargs):
+        self.size = size
+        self.function = function
+        self.args = args
+        self.kwargs = kwargs
+        self._local = ProcessLocal()
+
+    @property
+    def pool(self):
+        try:
+            return self._local.pool
+        except AttributeError:
+            self._local.pool = ObjectPool(self.size, self.function,
+                                          *self.args, **self.kwargs)
+            return self._local.pool
+
+    def __getattr__(self, attr):
+        return getattr(self.pool, attr)

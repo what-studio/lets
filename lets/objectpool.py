@@ -14,11 +14,25 @@ import gevent.queue
 __all__ = ['ObjectPool']
 
 
+class ObjectReservation(object):
+
+    def __init__(self, pool):
+        self.pool = pool
+        self.obj = None
+
+    def __enter__(self):
+        self.obj = self.pool.get()
+        return self.obj
+
+    def __exit__(self, *exc_info):
+        self.pool.release(self.obj)
+
+
 class ObjectPool(object):
     """Greenlet-safe object pool."""
 
-    __slots__ = ['objects', 'size', 'function', 'args', 'kwargs',
-                 '_lock', '_queue', '_busy']
+    __slots__ = ('objects', 'size', 'function', 'args', 'kwargs',
+                 '_lock', '_queue', '_busy')
 
     def __init__(self, size, function, *args, **kwargs):
         if size is None:
@@ -89,17 +103,3 @@ class ObjectPool(object):
                db.set('egg-key', 'spam-value')
         """
         return ObjectReservation(self)
-
-
-class ObjectReservation(object):
-
-    def __init__(self, pool):
-        self.pool = pool
-        self.obj = None
-
-    def __enter__(self):
-        self.obj = self.pool.get()
-        return self.obj
-
-    def __exit__(self, *exc_info):
-        self.pool.release(self.obj)

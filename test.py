@@ -72,6 +72,10 @@ def throw(exception):
     raise exception
 
 
+def spawn_again(f, *args, **kwargs):
+    return gevent.spawn(lambda: gevent.spawn(f, *args, **kwargs).get())
+
+
 class Killed(BaseException):
 
     pass
@@ -1029,3 +1033,33 @@ def test_atomic():
             lock = Semaphore()
             lock.acquire()
             lock.acquire()
+
+
+def test_process_local():
+    local = lets.ProcessLocal()
+    local.hello = 'world'
+    def assert_hello_world():
+        assert local.hello == 'world'
+    def assert_no_hello():
+        assert not hasattr(local, 'hello')
+    def assert_no_hello_after_access():
+        local.__dict__
+        assert not hasattr(local, 'hello')
+    for spawn, f in [(gevent.spawn, assert_hello_world),
+                     (lets.Processlet.spawn, assert_no_hello),
+                     (lets.Processlet.spawn, assert_no_hello_after_access),
+                     (spawn_again, assert_hello_world)]:
+        spawn(f).get()
+
+
+def test_process_local_object_pool():
+    pool = lets.ProcessLocalObjectPool(1, object)
+    with pool.reserve() as obj:
+        obj_id = id(obj)
+    def check(same_id):
+        with pool.reserve() as obj:
+            assert bool(id(obj) == obj_id) is same_id
+    for spawn, same_id in [(gevent.spawn, True),
+                           (lets.Processlet.spawn, False),
+                           (spawn_again, True)]:
+        spawn(check, same_id=same_id).get()

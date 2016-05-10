@@ -737,6 +737,32 @@ def test_job_queue_guarantees_all_jobs():
     assert xs == [0, 1, 2, 3]
 
 
+def test_job_queue_close():
+    queue = lets.JobQueue()
+    xs = []
+    def f(x):
+        gevent.sleep(1)
+        xs.append(x)
+    queue.put(Greenlet(f, 0))
+    queue.put(Greenlet(f, 1))
+    queue.put(Greenlet(f, 2))
+    queue.put(Greenlet(f, 3))
+    queue.close()
+    queue.join()
+    assert xs == [0]
+    with pytest.raises(RuntimeError):
+        queue.put(Greenlet(f, 4))
+    del xs[:]
+    queue2 = lets.JobQueue()
+    queue2.put(Greenlet(f, 0))
+    queue2.put(Greenlet(f, 1))
+    queue2.put(Greenlet(f, 2))
+    queue2.put(Greenlet(f, 3))
+    queue2.close()
+    queue2.kill()
+    assert xs == []
+
+
 def test_link_slave():
     def slave():
         gevent.sleep(100)

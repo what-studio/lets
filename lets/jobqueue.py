@@ -22,11 +22,12 @@ class JobQueue(object):
     :param workers: the size of the worker pool.  (default: 1)
     """
 
-    __slots__ = ['queue', 'worker_pool']
+    __slots__ = ['queue', 'worker_pool', 'closed']
 
     def __init__(self, size=None, workers=1):
         self.queue = gevent.queue.JoinableQueue(size)
         self.worker_pool = gevent.pool.Pool(workers)
+        self.closed = False
 
     def put(self, greenlet, block=True, timeout=None):
         """Enqueues a greenlet and spawns a worker.
@@ -38,10 +39,12 @@ class JobQueue(object):
         :returns: a worker greenlet if it is spawned.
         :raises ValueError: the greenlet is already started.
         """
+        if self.closed:
+            raise RuntimeError('Job queue has been closed')
         if greenlet.started:
             raise ValueError('Job greenlet is already started')
         self.queue.put(greenlet, block=block, timeout=timeout)
-        # spawn a worker if the pool is available.
+        # Spawn a worker if the pool is available.
         self.worker_pool.join(0)
         if not self.worker_pool.full():
             return self.worker_pool.spawn(self.work)
@@ -59,7 +62,7 @@ class JobQueue(object):
                 greenlet.join()
                 self.queue.task_done()
         except BaseException as exc:
-            # kill remaining jobs.
+            # Kill remaining jobs.
             greenlet.kill(exc)
             for greenlet in greenlets():
                 greenlet.kill(exc)
@@ -67,7 +70,19 @@ class JobQueue(object):
         finally:
             assert self.queue.empty()
 
-    # methods from queue.
+    def close(self, exception=gevent.GreenletExit):
+        """Closes the job queue to deny more jobs.  A closed job queue raises
+        :exc:`RuntimeError` when a new job is put.
+        """
+        if self.closed:
+            return
+        self.closed = True
+        while not self.queue.empty():
+            greenlet = self.queue.get(block=False)
+            assert not greenlet.started
+            greenlet.kill(exception, block=False)
+
+    # Methods from queue.
 
     def qsize(self):
         return self.queue.qsize()
@@ -78,7 +93,7 @@ class JobQueue(object):
     def full(self):
         return self.queue.full()
 
-    # methods from worker pool.
+    # Methods from worker pool.
 
     def join(self, timeout=None, raise_error=False):
         self.worker_pool.join(timeout=timeout, raise_error=raise_error)

@@ -70,13 +70,16 @@ class JobQueue(object):
         finally:
             assert self.queue.empty()
 
-    def close(self, exception=gevent.GreenletExit):
+    def close(self):
         """Closes the job queue to deny more jobs.  A closed job queue raises
         :exc:`RuntimeError` when a new job is put.
         """
         if self.closed:
             return
         self.closed = True
+
+    def forget(self, exception=gevent.GreenletExit):
+        """Kills pending jobs."""
         while not self.queue.empty():
             greenlet = self.queue.get(block=False)
             assert not greenlet.started

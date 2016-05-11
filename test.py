@@ -737,30 +737,33 @@ def test_job_queue_guarantees_all_jobs():
     assert xs == [0, 1, 2, 3]
 
 
-def test_job_queue_close():
-    queue = lets.JobQueue()
-    xs = []
-    def f(x):
+def test_job_queue_close_and_forget():
+    def f(xs, x):
         gevent.sleep(1)
         xs.append(x)
-    queue.put(Greenlet(f, 0))
-    queue.put(Greenlet(f, 1))
-    queue.put(Greenlet(f, 2))
-    queue.put(Greenlet(f, 3))
-    queue.close()
-    queue.join()
-    assert xs == [0]
+    # close, join.
+    queue1, xs1 = lets.JobQueue(), []
+    queue1.put(Greenlet(f, xs1, 0))
+    queue1.put(Greenlet(f, xs1, 1))
+    queue1.put(Greenlet(f, xs1, 2))
+    queue1.put(Greenlet(f, xs1, 3))
+    queue1.close()
     with pytest.raises(RuntimeError):
-        queue.put(Greenlet(f, 4))
-    del xs[:]
-    queue2 = lets.JobQueue()
-    queue2.put(Greenlet(f, 0))
-    queue2.put(Greenlet(f, 1))
-    queue2.put(Greenlet(f, 2))
-    queue2.put(Greenlet(f, 3))
+        queue1.put(Greenlet(f, xs1, 4))
+    queue1.join()
+    assert xs1 == [0, 1, 2, 3]
+    # close, forget, join.
+    queue2, xs2 = lets.JobQueue(), []
+    queue2.put(Greenlet(f, xs2, 0))
+    queue2.put(Greenlet(f, xs2, 1))
+    queue2.put(Greenlet(f, xs2, 2))
+    queue2.put(Greenlet(f, xs2, 3))
     queue2.close()
-    queue2.kill()
-    assert xs == []
+    with pytest.raises(RuntimeError):
+        queue2.put(Greenlet(f, xs2, 4))
+    queue2.forget()
+    queue2.join()
+    assert xs2 == [0]
 
 
 def test_link_slave():

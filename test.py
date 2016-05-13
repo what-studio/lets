@@ -766,6 +766,16 @@ def test_job_queue_close_and_forget():
     assert xs2 == [0]
 
 
+def test_job_queue_join_workers():
+    ok = Event()
+    q = lets.JobQueue()
+    g = q.put(Greenlet(gevent.sleep, 0.1))
+    g.link(lambda g: ok.set())
+    # Before 0.0.24, JobQueue.join() doesn't guarantee finish of all workers.
+    q.join()
+    assert ok.is_set()
+
+
 def test_link_slave():
     def slave():
         gevent.sleep(100)

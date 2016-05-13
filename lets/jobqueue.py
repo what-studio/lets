@@ -106,7 +106,9 @@ class JobQueue(object):
     # Methods from worker pool.
 
     def join(self, timeout=None, raise_error=False):
+        greenlets = list(self.worker_pool)
         self.worker_pool.join(timeout=timeout, raise_error=raise_error)
+        gevent.joinall(greenlets, timeout=0)
 
     def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
         self.worker_pool.join(0)

@@ -45,7 +45,6 @@ class JobQueue(object):
             raise ValueError('Job greenlet is already started')
         self.queue.put(greenlet, block=block, timeout=timeout)
         # Spawn a worker if the pool is available.
-        self.worker_pool.join(0)
         if not self.worker_pool.full():
             return self.worker_pool.spawn(self.work)
 
@@ -69,6 +68,14 @@ class JobQueue(object):
             raise
         finally:
             assert self.queue.empty()
+            # Discard from the worker pool immediately.
+            #
+            # Because discarding by rawlink the standard implementation is
+            # executed little time later.  This behavior makes an effect to
+            # :meth:`put` not to can detect availability of the worker pool
+            # exactly.
+            #
+            self.worker_pool.discard(gevent.getcurrent())
 
     def close(self):
         """Closes the job queue to deny more jobs.  A closed job queue raises

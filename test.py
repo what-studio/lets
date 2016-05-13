@@ -729,8 +729,7 @@ def test_job_queue_guarantees_all_jobs():
     queue.put(g)
     g.join()
     gevent.sleep(0)
-    # the worker has done but the worker pool is still full.
-    assert queue.worker_pool.full()
+    # before 0.0.23, the worker has done but the worker pool is still full.
     # before 0.0.12, the final job won't be scheduled.
     queue.put(Greenlet(f, 3))
     queue.join()
@@ -761,6 +760,7 @@ def test_job_queue_close_and_forget():
     queue2.close()
     with pytest.raises(RuntimeError):
         queue2.put(Greenlet(f, xs2, 4))
+    queue2.join(0)
     queue2.forget()
     queue2.join()
     assert xs2 == [0]

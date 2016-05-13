@@ -30,6 +30,10 @@ class HubWrapper(gevent.hub.Hub):
     def __getattr__(self, attr):
         return getattr(self.hub, attr)
 
+    @property
+    def format_context(self):
+        return self.hub.format_context
+
 
 def hub_replacer(f):
     """Decorates a function to be a context manager which replaces the gevent

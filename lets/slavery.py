@@ -34,7 +34,8 @@ except TypeError:
 
 
 class MasterGreenletExit(GreenletExit):
-    """Slave greenlet should exit when the master greenlet is ready."""
+    """Slave greenlet should exit when the master greenlet finishes execution.
+    """
 
     pass
 
@@ -82,7 +83,7 @@ def join_slaves(greenlets, timeout=None, exception=MasterGreenletExit):
 
 def link_slave(greenlet, slave, exception=MasterGreenletExit):
     """Links a greenlet greenlet and a slave greenlet.  Slave greenlet will be
-    killed when the greenlet is ready.
+    killed when the greenlet finishes execution.
     """
     def punish(greenlet):
         slave.unlink(liberate)
@@ -94,8 +95,8 @@ def link_slave(greenlet, slave, exception=MasterGreenletExit):
 
 
 def spawn_slave(greenlet, func, *args, **kwargs):
-    """Spawns a slave greenlet.  Slave greenlet will be killed when the greenlet
-    is ready.
+    """Spawns a slave greenlet.  Slave greenlet will be killed when the
+    greenlet finishes execution.
     """
     slave = greenlet.spawn(func, *args, **kwargs)
     link_slave(greenlet, slave)
@@ -104,7 +105,7 @@ def spawn_slave(greenlet, func, *args, **kwargs):
 
 def spawn_slave_later(greenlet, seconds, func, *args, **kwargs):
     """Spawns a slave greenlet the given seconds later.  Slave greenlet will be
-    killed when the greenlet is ready.
+    killed when the greenlet finishes execution.
     """
     slave = greenlet.spawn_later(seconds, func, *args, **kwargs)
     link_slave(greenlet, slave)
@@ -112,14 +113,15 @@ def spawn_slave_later(greenlet, seconds, func, *args, **kwargs):
 
 
 def link_partner(greenlet, partner, exception=MasterGreenletExit):
-    """The greenlets will be killed when another greenlet is ready."""
+    """The greenlets will be killed when another greenlet finishes execution.
+    """
     link_slave(greenlet, partner, exception=exception)
     link_slave(partner, greenlet, exception=exception)
 
 
 def spawn_partner(greenlet, func, *args, **kwargs):
     """Spawns a partner greenlet.  The greenlet and partner greenlets will die
-    when another greenlet is ready.
+    when another greenlet finishes execution.
     """
     partner = greenlet.spawn(func, *args, **kwargs)
     link_partner(greenlet, partner)
@@ -128,7 +130,7 @@ def spawn_partner(greenlet, func, *args, **kwargs):
 
 def spawn_partner_later(greenlet, seconds, func, *args, **kwargs):
     """Spawns a partner greenlet the given seconds later.  The greenlet and
-    partner greenlets will die when another greenlet is ready.
+    partner greenlets will die when another greenlet finishes execution.
     """
     partner = greenlet.spawn_later(seconds, func, *args, **kwargs)
     link_partner(greenlet, partner)

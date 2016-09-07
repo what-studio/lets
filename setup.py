@@ -150,7 +150,7 @@ setup(
                  'Programming Language :: Python :: 2.7',
                  'Programming Language :: Python :: Implementation :: CPython',
                  'Topic :: Software Development'],
-    install_requires=['gevent>=1.1a2', 'gipc'],
+    install_requires=['gevent>=1.1.0', 'gipc'],
     tests_require=['psutil', 'pytest', 'pytest-rerunfailures'],
     test_suite='...',
 )

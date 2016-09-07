@@ -435,7 +435,7 @@ def test_task_kills_group(proc, group):
     assert isinstance(g3.exception, RuntimeError)
 
 
-def test_quiet_context(capsys):
+def _test_quiet_context(capsys):
     # Print the exception.
     gevent.spawn(divide_by_zero).join()
     out, err = capsys.readouterr()
@@ -472,6 +472,10 @@ def test_quiet_context(capsys):
         g.join()
     out, err = capsys.readouterr()
     assert not err
+    # Remaining greenlet.
+    with quiet():
+        g = gevent.spawn(gevent.sleep, 0.1)
+    gevent.sleep(1)
 
 
 def test_greenlet_system_exit():
@@ -1014,7 +1018,7 @@ def test_join_slaves_without_greenlets():
         lets.join_slaves([], timeout=1)
 
 
-def test_atomic():
+def _test_atomic():
     # NOTE: Nested context by comma is not available in Python 2.6.
     # o -- No gevent.
     with lets.atomic():
@@ -1072,6 +1076,8 @@ def test_atomic():
             lock = Semaphore()
             lock.acquire()
             lock.acquire()
+    # Back to normal.
+    gevent.sleep(1)
 
 
 def test_process_local():

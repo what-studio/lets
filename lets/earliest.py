@@ -11,7 +11,7 @@
 """
 from time import time as now
 
-from gevent import get_hub
+from gevent import get_hub, Timeout
 from gevent.event import Event
 
 
@@ -19,9 +19,9 @@ __all__ = ['Earliest']
 
 
 class Earliest(object):
-    """A :class:`gevent.event.Event`-like class to wait until the earliest time
-    among many times that've been set.  So you can set many times but it will
-    be wakened up just once.
+    """A :class:`gevent.event.AsyncResult`-like class to wait until the
+    earliest time among many times that've been set.  So you can set many times
+    but it will be wakened up just once.
     """
 
     __slots__ = ('time', 'value', 'timer', 'event')
@@ -50,15 +50,22 @@ class Earliest(object):
             self.event.set()
         return True
 
+    def ready(self):
+        """Whether it has been awoken."""
+        return self.event.ready()
+
     def wait(self, timeout=None):
         """Waits until the earliest awaking time.  It returns the time."""
         if self.event.wait(timeout):
             return self.time
 
-    def get(self, timeout=None):
-        """Waits and gets the earliest awaking value."""
+    def get(self, block=True, timeout=None):
+        """Waits and gets the earliest awaking time and the value."""
+        if not block and not self.ready():
+            raise Timeout
         if self.event.wait(timeout):
-            return self.value
+            return self.time, self.value
+        raise Timeout(timeout)
 
     def clear(self):
         """Discards the schedule for awaking."""

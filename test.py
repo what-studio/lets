@@ -1099,6 +1099,7 @@ def test_process_local():
 
 def test_earliest():
     ear = lets.Earliest()
+    assert not ear.ready()
     assert ear.wait(0.1) is None
     t = time.time()
     assert ear.set(t + 10)
@@ -1107,14 +1108,20 @@ def test_earliest():
     assert ear.set(t + 1)
     assert ear.wait() == t + 1
     assert ear.wait() == t + 1
+    assert ear.ready()
     ear.clear()
+    assert not ear.ready()
     assert ear.wait(0.1) is None
-    assert ear.get(0.1) is None
+    with pytest.raises(Timeout):
+        ear.get(timeout=0.1)
     t = time.time()
     ear.set(t + 1, 123)
-    ear.set(t + 2, 456)
-    ear.set(t, 42)
-    assert ear.get(0.1) == 42
+    ear.set(t + 10, 456)
+    ear.set(t + 0.1, 42)
+    with pytest.raises(Timeout):
+        ear.get(block=False)
+    assert ear.get(timeout=1) == (t + 0.1, 42)
     with pytest.raises(TypeError):
         ear.set(None)
-    assert ear.get(0.1) == 42
+    assert ear.get() == (t + 0.1, 42)
+    assert ear.get(block=False) == (t + 0.1, 42)

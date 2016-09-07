@@ -40,9 +40,9 @@ class JobQueue(object):
         :raises ValueError: the greenlet is already started.
         """
         if self.closed:
-            raise RuntimeError('Job queue has been closed')
+            raise RuntimeError('job queue has been closed')
         if greenlet.started:
-            raise ValueError('Job greenlet is already started')
+            raise ValueError('job greenlet is already started')
         self.queue.put(greenlet, block=block, timeout=timeout)
         # Spawn a worker if the pool is available.
         if not self.worker_pool.full():

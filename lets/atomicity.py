@@ -15,7 +15,7 @@ from .utils import hub_replacer, HubWrapper
 __all__ = ['atomic']
 
 
-ATOMICITY_ERROR = AssertionError('Impossible to call blocking '
+ATOMICITY_ERROR = AssertionError('impossible to call blocking '
                                  'function on the atomic hub')
 
 

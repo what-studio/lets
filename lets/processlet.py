@@ -118,7 +118,7 @@ class Processlet(gevent.Greenlet):
 
     def _call_when_started(self, function, *args, **kwargs):
         if self._queue is None:
-            raise RuntimeError('Child process already started')
+            raise RuntimeError('child process already started')
         self._queue.put((function, args, kwargs))
 
     def _wait_starting(self, timeout=None):

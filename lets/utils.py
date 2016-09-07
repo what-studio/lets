@@ -93,4 +93,4 @@ def final_next(gen):
     except StopIteration:
         pass
     else:
-        raise RuntimeError('Generator didn\'t stop')
+        raise RuntimeError('generator didn\'t stop')

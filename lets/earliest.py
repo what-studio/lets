@@ -34,13 +34,12 @@ class Earliest(object):
         """Sets the time to awake up.  If the time is later than the previously
         given time, will be ignored and it returns ``False``.
         """
+        if time is None:
+            raise TypeError('use clear() instead of setting none time')
         if self.time is not None and self.time <= time:
             # Later time given.
             return False
         self._reset(time, value)
-        if time is None:
-            # Reset only.
-            return False
         delay = time - now()
         if delay > 0:
             # Set timer to wake up.

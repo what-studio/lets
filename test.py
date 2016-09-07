@@ -1109,8 +1109,12 @@ def test_earliest():
     assert ear.wait() == t + 1
     ear.clear()
     assert ear.wait(0.1) is None
+    assert ear.get(0.1) is None
     t = time.time()
     ear.set(t + 1, 123)
     ear.set(t + 2, 456)
     ear.set(t, 42)
+    assert ear.get(0.1) == 42
+    with pytest.raises(TypeError):
+        ear.set(None)
     assert ear.get(0.1) == 42

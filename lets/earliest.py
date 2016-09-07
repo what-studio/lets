@@ -24,20 +24,20 @@ class Earliest(object):
     be wakened up just once.
     """
 
-    __slots__ = ('time', 'timer', 'event')
+    __slots__ = ('time', 'value', 'timer', 'event')
 
     def __init__(self):
-        self.time = self.timer = None
+        self.time = self.value = self.timer = None
         self.event = Event()
 
-    def set(self, time):
+    def set(self, time, value=None):
         """Sets the time to awake up.  If the time is later than the previously
         given time, will be ignored and it returns ``False``.
         """
         if self.time is not None and self.time <= time:
             # Later time given.
             return False
-        self._reset(time)
+        self._reset(time, value)
         if time is None:
             # Reset only.
             return False
@@ -53,17 +53,22 @@ class Earliest(object):
 
     def wait(self, timeout=None):
         """Waits until the earliest awaking time.  It returns the time."""
-        if not self.event.wait(timeout):
-            return None
-        return self.time
+        if self.event.wait(timeout):
+            return self.time
+
+    def get(self, timeout=None):
+        """Waits and gets the earliest awaking value."""
+        if self.event.wait(timeout):
+            return self.value
 
     def clear(self):
         """Discards the schedule for awaking."""
         self.event.clear()
-        self._reset(None)
+        self._reset(None, None)
 
-    def _reset(self, time):
+    def _reset(self, time, value):
         self.time = time
+        self.value = value
         if self.timer is not None:
             self.timer.stop()
 

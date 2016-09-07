@@ -1109,3 +1109,5 @@ def test_earliest():
     assert ear.wait() == t + 1
     ear.clear()
     assert ear.wait(0.1) is None
+    ear.set(t, 42)
+    assert ear.get(0.1) == 42

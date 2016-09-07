@@ -1089,3 +1089,17 @@ def test_process_local():
                      (lets.Processlet.spawn, assert_no_hello_after_access),
                      (spawn_again, assert_hello_world)]:
         spawn(f).get()
+
+
+def test_earliest():
+    ear = lets.Earliest()
+    assert ear.wait(0.1) is None
+    t = time.time()
+    assert ear.set(t + 10)
+    assert ear.set(t + 5)
+    assert not ear.set(t + 6)
+    assert ear.set(t + 1)
+    assert ear.wait() == t + 1
+    assert ear.wait() == t + 1
+    ear.clear()
+    assert ear.wait(0.1) is None

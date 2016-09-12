@@ -11,14 +11,14 @@ from __future__ import absolute_import
 
 from contextlib import contextmanager
 
-import gevent
+from gevent import getcurrent
 
 
 __all__ = ['atomic']
 
 
 ATOMICITY_ERROR = AssertionError('impossible to call blocking '
-                                 'function on the atomic hub')
+                                 'function in atomic context')
 
 
 def atomicity_error():
@@ -26,11 +26,12 @@ def atomicity_error():
 
 
 @contextmanager
-def atomic():
+def atomic(greenlet=None):
     """Raises an :exc:`AssertionError` when a gevent blocking function called
     in the context.
     """
-    greenlet = gevent.getcurrent()
+    if greenlet is None:
+        greenlet = getcurrent()
     switch_out = getattr(greenlet, 'switch_out', None)
     greenlet.switch_out = atomicity_error
     try:

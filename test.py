@@ -1018,7 +1018,7 @@ def test_join_slaves_without_greenlets():
         lets.join_slaves([], timeout=1)
 
 
-def _test_atomic():
+def test_atomic():
     # NOTE: Nested context by comma is not available in Python 2.6.
     # o -- No gevent.
     with lets.atomic():

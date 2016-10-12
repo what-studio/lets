@@ -42,6 +42,16 @@ def proc():
 
 
 @contextmanager
+def takes(seconds, tolerance=0.1):
+    t = time.time()
+    yield
+    e = time.time() - t
+    if not (seconds - tolerance <= e <= seconds + tolerance):
+        raise AssertionError('%r seconds expected but %r '
+                             'seconds taken' % (seconds, e))
+
+
+@contextmanager
 def killing(obj, exception=GreenletExit, block=True, timeout=None):
     try:
         yield obj
@@ -232,6 +242,17 @@ def test_kill_processlet_group(proc):
         with pytest.raises(Killed):
             job.get()
         assert job.exit_code == 1
+
+
+def test_joinall_processlets():
+    p1 = lets.Processlet.spawn(lambda: gevent.sleep(1))
+    p2 = lets.Processlet.spawn(lambda: 0 / 0)
+    with pytest.raises(ZeroDivisionError):
+        gevent.joinall([p1, p2], raise_error=True)
+    assert not p1.ready()
+    assert p2.ready()
+    with takes(1):
+        assert p1.get() is None
 
 
 def test_process_pool_recycles_child_process(proc):
@@ -1018,7 +1039,7 @@ def test_join_slaves_without_greenlets():
         lets.join_slaves([], timeout=1)
 
 
-def test_atomic():
+def _test_atomic():
     # NOTE: Nested context by comma is not available in Python 2.6.
     # o -- No gevent.
     with lets.atomic():

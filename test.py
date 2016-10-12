@@ -97,24 +97,28 @@ class ExpectedError(BaseException):
 
 
 @pytest.fixture(params=[
-    [(True, None)],
-    [(False, None)],
-    [(False, 0.1), (True, None)],
-    [(True, 0.1), (False, None)],
-], ids=[
-    'idle',
-    'busy',
-    'busy0.1-idle',
-    'idle0.1-busy',
-])
+    [('idle', None)],
+    [('sleep', None)],
+    [('budy', None)],
+    [('pass', 0.1), ('idle', None)],
+    [('idle', 0.1), ('pass', None)],
+    [('pass', 0.1), ('idle', 0.1), ('pass', 0.1), ('idle', None)],
+    [('idle', 0.1), ('pass', 0.1), ('idle', 0.1), ('pass', None)],
+], ids=lambda spec: '-'.join(
+    x if y is None else '%s%.1f' % (x, y) for x, y in spec
+))
 def bubble_error(request):
     def f(exception=Killed):
         try:
-            for idle, seconds in request.param:
+            for strategy, seconds in request.param:
                 t = time.time()
                 while seconds is None or time.time() - t < seconds:
-                    if idle:
+                    if strategy == 'idle':
                         gevent.idle()
+                    elif strategy == 'sleep':
+                        gevent.sleep(0.1)
+                    elif strategy == 'pass':
+                        pass
         except GreenletExit:
             raise exception
     return f

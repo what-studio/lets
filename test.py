@@ -206,7 +206,7 @@ def test_processlet_callback():
     assert len(r) == 10
 
 
-@pytest.mark.parametrize('busy', [True, False])
+@pytest.mark.parametrize('busy', [False, True])
 def test_kill_processlet(proc, busy):
     job = lets.Processlet.spawn(raise_when_killed, busy=busy)
     job.join(0)
@@ -218,8 +218,9 @@ def test_kill_processlet(proc, busy):
     assert job.exit_code == 1
 
 
-def test_kill_processlet_nonblock(proc):
-    job = lets.Processlet.spawn(raise_when_killed)
+@pytest.mark.parametrize('busy', [False, True])
+def test_kill_processlet_nonblock(proc, busy):
+    job = lets.Processlet.spawn(raise_when_killed, busy=busy)
     job.join(0)
     assert len(proc.children()) == 1
     job.kill(block=False)
@@ -230,12 +231,13 @@ def test_kill_processlet_nonblock(proc):
     assert job.exit_code == 1
 
 
-def test_kill_processlet_group(proc):
+@pytest.mark.parametrize('busy', [False, True])
+def test_kill_processlet_group(proc, busy):
     group = Group()
     group.greenlet_class = lets.Processlet
-    group.spawn(raise_when_killed)
-    group.spawn(raise_when_killed)
-    group.spawn(raise_when_killed)
+    group.spawn(raise_when_killed, busy=busy)
+    group.spawn(raise_when_killed, busy=busy)
+    group.spawn(raise_when_killed, busy=busy)
     group.join(0)
     assert len(proc.children()) == 3
     group.kill()
@@ -519,7 +521,8 @@ def test_greenlet_system_exit():
         gevent.spawn(gevent.sleep, 0.1).join()
 
 
-def test_processlet_system_exit():
+@pytest.mark.parametrize('busy', [False, True])
+def test_processlet_system_exit(busy):
     job = lets.Processlet.spawn(kill_itself)
     gevent.spawn(gevent.sleep, 0.1).join()
     with pytest.raises(lets.ProcessExit) as e:
@@ -532,7 +535,7 @@ def test_processlet_system_exit():
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM
-    job = lets.Processlet.spawn(raise_when_killed, SystemExit(42))
+    job = lets.Processlet.spawn(raise_when_killed, SystemExit(42), busy=busy)
     job.join(0)
     job.kill()
     with pytest.raises(lets.ProcessExit) as e:

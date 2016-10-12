@@ -96,13 +96,28 @@ class ExpectedError(BaseException):
     pass
 
 
-def raise_when_killed(exception=Killed, busy=False):
-    try:
-        while True:
-            if not busy:
-                gevent.idle()
-    except GreenletExit:
-        raise exception
+@pytest.fixture(params=[
+    [(True, None)],
+    [(False, None)],
+    [(False, 0.1), (True, None)],
+    [(True, 0.1), (False, None)],
+], ids=[
+    'idle',
+    'busy',
+    'busy0.1-idle',
+    'idle0.1-busy',
+])
+def raise_when_killed(request):
+    def f(exception=Killed):
+        try:
+            for idle, seconds in request.param:
+                t = time.time()
+                while seconds is None or time.time() - t < seconds:
+                    if idle:
+                        gevent.idle()
+        except GreenletExit:
+            raise exception
+    return f
 
 
 def get_pid_anyway(*args, **kwargs):
@@ -206,9 +221,8 @@ def test_processlet_callback():
     assert len(r) == 10
 
 
-@pytest.mark.parametrize('busy', [False, True])
-def test_kill_processlet(proc, busy):
-    job = lets.Processlet.spawn(raise_when_killed, busy=busy)
+def test_kill_processlet(proc, raise_when_killed):
+    job = lets.Processlet.spawn(raise_when_killed)
     job.join(0)
     assert len(proc.children()) == 1
     job.kill()
@@ -218,9 +232,8 @@ def test_kill_processlet(proc, busy):
     assert job.exit_code == 1
 
 
-@pytest.mark.parametrize('busy', [False, True])
-def test_kill_processlet_nonblock(proc, busy):
-    job = lets.Processlet.spawn(raise_when_killed, busy=busy)
+def test_kill_processlet_nonblock(proc, raise_when_killed):
+    job = lets.Processlet.spawn(raise_when_killed)
     job.join(0)
     assert len(proc.children()) == 1
     job.kill(block=False)
@@ -231,13 +244,12 @@ def test_kill_processlet_nonblock(proc, busy):
     assert job.exit_code == 1
 
 
-@pytest.mark.parametrize('busy', [False, True])
-def test_kill_processlet_group(proc, busy):
+def test_kill_processlet_group(proc, raise_when_killed):
     group = Group()
     group.greenlet_class = lets.Processlet
-    group.spawn(raise_when_killed, busy=busy)
-    group.spawn(raise_when_killed, busy=busy)
-    group.spawn(raise_when_killed, busy=busy)
+    group.spawn(raise_when_killed)
+    group.spawn(raise_when_killed)
+    group.spawn(raise_when_killed)
     group.join(0)
     assert len(proc.children()) == 3
     group.kill()
@@ -521,8 +533,7 @@ def test_greenlet_system_exit():
         gevent.spawn(gevent.sleep, 0.1).join()
 
 
-@pytest.mark.parametrize('busy', [False, True])
-def test_processlet_system_exit(busy):
+def test_processlet_system_exit(raise_when_killed):
     job = lets.Processlet.spawn(kill_itself)
     gevent.spawn(gevent.sleep, 0.1).join()
     with pytest.raises(lets.ProcessExit) as e:
@@ -535,7 +546,7 @@ def test_processlet_system_exit(busy):
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM
-    job = lets.Processlet.spawn(raise_when_killed, SystemExit(42), busy=busy)
+    job = lets.Processlet.spawn(raise_when_killed, SystemExit(42))
     job.join(0)
     job.kill()
     with pytest.raises(lets.ProcessExit) as e:

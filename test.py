@@ -107,7 +107,7 @@ class ExpectedError(BaseException):
     'busy0.1-idle',
     'idle0.1-busy',
 ])
-def raise_when_killed(request):
+def bubble_error(request):
     def f(exception=Killed):
         try:
             for idle, seconds in request.param:
@@ -221,8 +221,8 @@ def test_processlet_callback():
     assert len(r) == 10
 
 
-def test_kill_processlet(proc, raise_when_killed):
-    job = lets.Processlet.spawn(raise_when_killed)
+def test_kill_processlet(proc, bubble_error):
+    job = lets.Processlet.spawn(bubble_error)
     job.join(0)
     assert len(proc.children()) == 1
     job.kill()
@@ -232,8 +232,8 @@ def test_kill_processlet(proc, raise_when_killed):
     assert job.exit_code == 1
 
 
-def test_kill_processlet_nonblock(proc, raise_when_killed):
-    job = lets.Processlet.spawn(raise_when_killed)
+def test_kill_processlet_nonblock(proc, bubble_error):
+    job = lets.Processlet.spawn(bubble_error)
     job.join(0)
     assert len(proc.children()) == 1
     job.kill(block=False)
@@ -244,12 +244,12 @@ def test_kill_processlet_nonblock(proc, raise_when_killed):
     assert job.exit_code == 1
 
 
-def test_kill_processlet_group(proc, raise_when_killed):
+def test_kill_processlet_group(proc, bubble_error):
     group = Group()
     group.greenlet_class = lets.Processlet
-    group.spawn(raise_when_killed)
-    group.spawn(raise_when_killed)
-    group.spawn(raise_when_killed)
+    group.spawn(bubble_error)
+    group.spawn(bubble_error)
+    group.spawn(bubble_error)
     group.join(0)
     assert len(proc.children()) == 3
     group.kill()
@@ -533,7 +533,7 @@ def test_greenlet_system_exit():
         gevent.spawn(gevent.sleep, 0.1).join()
 
 
-def test_processlet_system_exit(raise_when_killed):
+def test_processlet_system_exit(bubble_error):
     job = lets.Processlet.spawn(kill_itself)
     gevent.spawn(gevent.sleep, 0.1).join()
     with pytest.raises(lets.ProcessExit) as e:
@@ -546,7 +546,7 @@ def test_processlet_system_exit(raise_when_killed):
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM
-    job = lets.Processlet.spawn(raise_when_killed, SystemExit(42))
+    job = lets.Processlet.spawn(bubble_error, SystemExit(42))
     job.join(0)
     job.kill()
     with pytest.raises(lets.ProcessExit) as e:

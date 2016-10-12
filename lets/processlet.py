@@ -100,15 +100,6 @@ def call_and_put(function, args, kwargs, pipe):
     raise SystemExit(0)
 
 
-def get_and_kill(pipe, greenlet):
-    """Kills the greenlet if the parent sends an exception."""
-    try:
-        exc = pipe.get()
-    except EOFError as exc:
-        pass
-    greenlet.kill(exc, block=False)
-
-
 class Processlet(gevent.Greenlet):
     """Calls a function in child process."""
 

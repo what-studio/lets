@@ -42,6 +42,7 @@
 from __future__ import absolute_import
 
 from contextlib import contextmanager
+from functools import partial
 import os
 import signal
 import sys
@@ -58,6 +59,11 @@ from .objectpool import ObjectPool
 
 
 __all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal']
+
+
+#: The signal number for killing a child process.  It makes the child process
+#: detect some exception has been set from the parent process.
+SIG_KILL_CHILD = signal.SIGHUP
 
 
 class ProcessExit(BaseException):
@@ -193,6 +199,7 @@ class Processlet(gevent.Greenlet):
                     pass
                 else:
                     if self._started.is_set():
+                        os.kill(self.pid, SIG_KILL_CHILD)
                         successful, value = p_pipe.get()
                 proc.join()
             finally:
@@ -219,8 +226,18 @@ class Processlet(gevent.Greenlet):
             pass
         else:
             g = gevent.spawn(call_and_put, self.function, args, kwargs, pipe)
-            gevent.spawn(get_and_kill, pipe, g)
+            signal.signal(SIG_KILL_CHILD, partial(self._child_killed, pipe, g))
             g.join()
+
+    def _child_killed(self, pipe, greenlet, signo, frame):
+        try:
+            exc = pipe.get()
+        except EOFError as exc:
+            pass
+        if greenlet.gr_frame:
+            greenlet.kill(exc, block=False)
+        else:
+            raise exc
 
 
 class ProcessPool(gevent.pool.Pool):

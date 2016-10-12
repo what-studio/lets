@@ -96,10 +96,11 @@ class ExpectedError(BaseException):
     pass
 
 
-def raise_when_killed(exception=Killed):
+def raise_when_killed(exception=Killed, busy=False):
     try:
         while True:
-            gevent.sleep(0)
+            if not busy:
+                gevent.idle()
     except GreenletExit:
         raise exception
 
@@ -205,8 +206,9 @@ def test_processlet_callback():
     assert len(r) == 10
 
 
-def test_kill_processlet(proc):
-    job = lets.Processlet.spawn(raise_when_killed)
+@pytest.mark.parametrize('busy', [True, False])
+def test_kill_processlet(proc, busy):
+    job = lets.Processlet.spawn(raise_when_killed, busy=busy)
     job.join(0)
     assert len(proc.children()) == 1
     job.kill()
@@ -253,6 +255,18 @@ def test_joinall_processlets():
     assert p2.ready()
     with takes(1):
         assert p1.get() is None
+
+
+def test_killall_processlets():
+    p1 = lets.Processlet.spawn(busy_waiting, 5)
+    p2 = lets.Processlet.spawn(busy_waiting, 5)
+    gevent.sleep(0.1)
+    assert not p1.ready()
+    assert not p2.ready()
+    with gevent.Timeout(1):
+        gevent.killall([p1, p2])
+    assert p1.ready()
+    assert p2.ready()
 
 
 def test_process_pool_recycles_child_process(proc):

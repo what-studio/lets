@@ -42,8 +42,14 @@
 from __future__ import absolute_import
 
 from contextlib import contextmanager
+import io
 import os
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 import signal
+import struct
 import sys
 import warnings
 
@@ -52,6 +58,7 @@ import gevent.event
 import gevent.local
 import gevent.pool
 import gevent.queue
+import gevent.socket
 import gipc
 
 from .objectpool import ObjectPool
@@ -333,3 +340,86 @@ class ProcessLocal(gevent.local.local):
     def __delattr__(self, attr):
         with _patch(self):
             return object.__delattr__(self, attr)
+
+
+HEADER_SPEC = '=I'
+HEADER_SIZE = struct.calcsize(HEADER_SPEC)
+
+
+def recv_enough(socket, size):
+    buf = io.BytesIO()
+    more = size
+    while more:
+        chunk = socket.recv(more)
+        print 'received', `chunk`
+        if not chunk:
+            raise EOFError
+        buf.write(chunk)
+        more -= len(chunk)
+    return buf.getvalue()
+
+
+class Processlet2(gevent.Greenlet):
+
+    def __init__(self, run=None, *args, **kwargs):
+        args = (run,) + args
+        super(Processlet2, self).__init__(None, *args, **kwargs)
+
+    def _run(self, run, *args, **kwargs):
+        p, c = gevent.socket.socketpair()
+        if gevent.fork() == 0:
+            self._child(c, run, *args, **kwargs)
+        else:
+            self.socket = p
+            self._parent(p)
+
+    @staticmethod
+    def _child(socket, run, *args, **kwargs):
+        fd = socket.fileno()
+        gevent.get_hub().destroy(destroy_loop=True)
+        socket = gevent.socket.fromfd(fd, gevent.socket.AF_UNIX,
+                                      gevent.socket.SOCK_STREAM)
+        greenlet = gevent.spawn(run, *args, **kwargs)
+        gevent.spawn(Processlet2._killee, socket, greenlet)
+        try:
+            rv = greenlet.get()
+        except BaseException as rv:
+            ok = False
+            # import traceback
+            # traceback.print_exc()
+        else:
+            ok = True
+        data = pickle.dumps((ok, rv))
+        socket.send(struct.pack(HEADER_SPEC, len(data)))
+        socket.send(data)
+        os._exit(0)
+
+    @staticmethod
+    def _killee(socket, greenlet):
+        print '...'
+        while True:
+            print 'wait...'
+            data = recv_enough(socket, HEADER_SIZE)
+            print `data`
+            size, = struct.unpack(HEADER_SPEC, data)
+            data = recv_enough(socket, size)
+            err = pickle.loads(data)
+            print 'kill by', err
+            greenlet.kill(err)
+
+    @staticmethod
+    def _parent(socket):
+        try:
+            data = recv_enough(socket, HEADER_SIZE)
+        except BaseException as exc:
+            data = pickle.dumps(exc)
+            socket.send(struct.pack(HEADER_SPEC, len(data)))
+            socket.send(data)
+            data = recv_enough(socket, HEADER_SIZE)
+        size, = struct.unpack(HEADER_SPEC, data)
+        data = recv_enough(socket, size)
+        ok, rv = pickle.loads(data)
+        if ok:
+            return rv
+        else:
+            raise rv

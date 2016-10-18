@@ -387,7 +387,24 @@ def test_kill_quietlet():
         job.get()
 
 
-def test_quietlet_no_leak():
+@pytest.fixture
+def ref_count():
+    # try:
+    #     # CPython
+    #     return sys.getrefcount
+    # except AttributeError:
+    # PyPy
+    def count_referrers(x):
+        gc.collect()
+        refs = gc.get_referrers(x)
+        refs = reduce(lambda refs, r: refs.append(r) or refs
+                      if r not in refs else refs, refs, [])
+        print refs
+        return len(refs)
+    return count_referrers
+
+
+def test_quietlet_no_leak(ref_count):
     ref = weakref.ref(lets.Quietlet.spawn(divide_by_zero))
     gc.collect()
     assert isinstance(ref(), lets.Quietlet)
@@ -395,13 +412,13 @@ def test_quietlet_no_leak():
     gc.collect()
     assert ref() is None
     job = lets.Quietlet(divide_by_zero)
-    assert sys.getrefcount(job) == 2  # variable 'job' (1) + argument (1)
+    assert ref_count(job) == 2  # variable 'job' (1) + argument (1)
     job.start()
-    assert sys.getrefcount(job) == 3  # + hub (1)
+    assert ref_count(job) == 3  # + hub (1)
     job.join()
-    assert sys.getrefcount(job) == 6  # + gevent (3)
+    assert ref_count(job) == 6  # + gevent (3)
     gevent.sleep(0)
-    assert sys.getrefcount(job) == 2  # - gevent (3) - hub (1)
+    assert ref_count(job) == 2  # - gevent (3) - hub (1)
     ref = weakref.ref(job)
     del job
     gc.collect()

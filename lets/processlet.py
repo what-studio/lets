@@ -62,6 +62,7 @@ import gevent.socket
 import gipc
 
 from .objectpool import ObjectPool
+from .quietlet import Quietlet
 
 
 __all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal']
@@ -351,7 +352,6 @@ def recv_enough(socket, size):
     more = size
     while more:
         chunk = socket.recv(more)
-        print 'received', `chunk`
         if not chunk:
             raise EOFError
         buf.write(chunk)
@@ -367,58 +367,67 @@ class Processlet2(gevent.Greenlet):
 
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
-        if gevent.fork() == 0:
+        pid = gevent.fork()
+        if pid == 0:
             self._child(c, run, *args, **kwargs)
         else:
-            self.socket = p
-            self._parent(p)
+            self._parent(p, pid)
 
     @staticmethod
-    def _child(socket, run, *args, **kwargs):
-        fd = socket.fileno()
+    def _send(sock, value):
+        """Sends a Python value through the socket."""
+        data = pickle.dumps(value)
+        sock.send(struct.pack(HEADER_SPEC, len(data)))
+        sock.send(data)
+
+    @staticmethod
+    def _recv(sock, size_data=None):
+        """Receives a Python value through the socket."""
+        if size_data is None:
+            size_data = recv_enough(sock, HEADER_SIZE)
+        size, = struct.unpack(HEADER_SPEC, size_data)
+        data = recv_enough(sock, size)
+        return pickle.loads(data)
+
+    @classmethod
+    def _child(cls, sock, run, *args, **kwargs):
+        # Cancel all scheduled greenlets.
         gevent.get_hub().destroy(destroy_loop=True)
-        socket = gevent.socket.fromfd(fd, gevent.socket.AF_UNIX,
-                                      gevent.socket.SOCK_STREAM)
-        greenlet = gevent.spawn(run, *args, **kwargs)
-        gevent.spawn(Processlet2._killee, socket, greenlet)
+        # Reinit the socket because the hub has been destroyed.
+        sock = gevent.socket.fromfd(sock.fileno(), sock.family, sock.proto)
+        greenlet = Quietlet.spawn(run, *args, **kwargs)
+        killed = lambda __, frame: cls._child_killed(sock, greenlet, frame)
+        assert signal.signal(signal.SIGHUP, killed) == 0
         try:
             rv = greenlet.get()
         except BaseException as rv:
             ok = False
-            # import traceback
-            # traceback.print_exc()
         else:
             ok = True
-        data = pickle.dumps((ok, rv))
-        socket.send(struct.pack(HEADER_SPEC, len(data)))
-        socket.send(data)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        cls._send(sock, (ok, rv))
         os._exit(0)
 
-    @staticmethod
-    def _killee(socket, greenlet):
-        print '...'
-        while True:
-            print 'wait...'
-            data = recv_enough(socket, HEADER_SIZE)
-            print `data`
-            size, = struct.unpack(HEADER_SPEC, data)
-            data = recv_enough(socket, size)
-            err = pickle.loads(data)
-            print 'kill by', err
-            greenlet.kill(err)
+    @classmethod
+    def _child_killed(cls, sock, greenlet, frame):
+        exc = cls._recv(sock)
+        if greenlet.gr_frame in [frame, None]:
+            # The greenlet is busy.
+            raise exc
+        greenlet.kill(exc, block=False)
 
-    @staticmethod
-    def _parent(socket):
-        try:
-            data = recv_enough(socket, HEADER_SIZE)
-        except BaseException as exc:
-            data = pickle.dumps(exc)
-            socket.send(struct.pack(HEADER_SPEC, len(data)))
-            socket.send(data)
-            data = recv_enough(socket, HEADER_SIZE)
-        size, = struct.unpack(HEADER_SPEC, data)
-        data = recv_enough(socket, size)
-        ok, rv = pickle.loads(data)
+    @classmethod
+    def _parent(cls, sock, pid):
+        while True:
+            try:
+                data = recv_enough(sock, HEADER_SIZE)
+            except BaseException as exc:
+                cls._send(sock, exc)
+                os.kill(pid, signal.SIGHUP)
+            else:
+                break
+        ok, rv = cls._recv(sock, size_data=data)
         if ok:
             return rv
         else:

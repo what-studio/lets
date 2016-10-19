@@ -4,6 +4,7 @@ import gevent
 import gipc
 import time
 from lets.processlet import Processlet2
+from lets.quietlet import Quietlet
 
 
 def f():
@@ -12,10 +13,11 @@ def f():
         print os.getpid()
 def g():
     gevent.sleep(3)
-def spin(sec):
+def spin(sec, sleep=False):
     t = time.time()
     while time.time() - t < sec:
-        gevent.sleep(0.01)
+        if sleep:
+            gevent.sleep(0.01)
 gevent.spawn(f)
 gevent.sleep(1)
 
@@ -35,13 +37,24 @@ gevent.sleep(1)
 # else:
 #     print 'parent', os.getpid()
 
-p = Processlet2.spawn(spin, 3)
-print 'spawned'
+class QuietProcesslet(Processlet2, Quietlet):
+
+    pass
+
+p = QuietProcesslet.spawn(spin, 3, sleep=True)
+print '[1] spawned'
 p.join(timeout=1)
-print 'kill'
-p.kill(ValueError)
-print 'killed'
-print `p.get()`
-print 'joined'
+p.kill(ValueError, block=False)
+print '[1] killed'
+p.join()
+print '[1] joined', p.successful()
+
+p = QuietProcesslet.spawn(spin, 3, sleep=False)
+print '[2] spawned'
+p.join(timeout=1)
+p.kill(ValueError, block=False)
+print '[2] killed'
+p.join()
+print '[2] joined', p.successful()
 
 gevent.sleep(3)

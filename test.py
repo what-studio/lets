@@ -527,14 +527,21 @@ def test_greenlet_system_exit():
 
 
 def test_processlet_system_exit():
+    @gevent.spawn
+    def f():
+        while True:
+            gevent.sleep(0.5)
+            print '.'
     job = lets.Processlet.spawn(kill_itself)
     gevent.spawn(gevent.sleep, 0.1).join()
     with pytest.raises(lets.ProcessExit) as e:
         job.get()
     assert e.value.code == -signal.SIGKILL
     assert job.exit_code == -signal.SIGKILL
+    gevent.sleep(1)
     job = lets.Processlet.spawn(busy_waiting, 10)
-    job.send(signal.SIGTERM)
+    job.join(0)
+    os.kill(job.pid, signal.SIGTERM)
     with pytest.raises(lets.ProcessExit) as e:
         job.get()
     assert e.value.code == -signal.SIGTERM

@@ -58,6 +58,8 @@ import gevent.event
 import gevent.local
 import gevent.pool
 import gevent.queue
+import gevent.select
+import gevent.signal
 import gevent.socket
 import gipc
 
@@ -362,19 +364,25 @@ def recv_enough(sock, size):
 class Processlet(gevent.Greenlet):
 
     pid = None
-    exit_code = None
+    code = None
 
     def __init__(self, run=None, *args, **kwargs):
         args = (run,) + args
         super(Processlet, self).__init__(None, *args, **kwargs)
 
+    @property
+    def exit_code(self):
+        return self.code
+
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
-        self.pid = pid = gevent.fork()
+        def cb(*args):
+            print 'finished', args
+        self.pid = pid = gevent.os.fork_and_watch(callback=cb)
         if pid == 0:
             self._child(c, run, *args, **kwargs)
             return
-        ok, rv, self.exit_code = self._parent(p, pid)
+        ok, rv, self.code = self._parent(p, pid)
         if ok:
             return rv
         else:
@@ -385,16 +393,34 @@ class Processlet(gevent.Greenlet):
         """The body of a parent process."""
         while True:
             try:
-                data = recv_enough(sock, HEADER_SIZE)
+                print 'wait1...'
+                watcher = gevent.os._watched_children[pid]
+                gevent.get_hub().wait(watcher)
+                stat = watcher.rstatus
+                # print dir(watcher)
+                # print 'wait...', pid
+                # print gevent.os._watched_children
+                # __, stat = gevent.os.waitpid(pid, os.WNOHANG)
             except BaseException as exc:
+                print `exc`
                 cls._send(sock, exc)
                 os.kill(pid, signal.SIGHUP)
             else:
+                print 'done', pid
                 break
-        ok, rv = cls._recv(sock, size_data=data)
-        __, status = gevent.os.waitpid(pid, 0)
-        exit_code = os.WEXITSTATUS(status)
-        return ok, rv, exit_code
+        if os.WIFEXITED(stat):
+            code = os.WEXITSTATUS(stat)
+        elif os.WIFSIGNALED(stat):
+            code = -os.WTERMSIG(stat)
+        else:
+            raise RuntimeError
+        ready, __, __ = gevent.select.select([sock], [], [], 0)
+        if ready:
+            data = recv_enough(sock, HEADER_SIZE)
+            ok, rv = cls._recv(sock, size_data=data)
+        else:
+            ok, rv = False, ProcessExit(code)
+        return ok, rv, code
 
     @classmethod
     def _child(cls, sock, run, *args, **kwargs):
@@ -408,12 +434,14 @@ class Processlet(gevent.Greenlet):
         assert signal.signal(signal.SIGHUP, killed) == 0
         try:
             rv = greenlet.get()
+        except SystemExit as rv:
+            ok, code = False, rv.code
         except BaseException as rv:
-            ok, exit_code = False, 1
+            ok, code = False, 1
         else:
-            ok, exit_code = True, 0
+            ok, code = True, 0
         cls._send(sock, (ok, rv))
-        os._exit(exit_code)
+        os._exit(code)
 
     @classmethod
     def _child_killed(cls, sock, greenlet, frame):

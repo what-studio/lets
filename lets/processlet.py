@@ -376,9 +376,7 @@ class Processlet(gevent.Greenlet):
 
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
-        def cb(*args):
-            print 'finished', args
-        self.pid = pid = gevent.os.fork_and_watch(callback=cb)
+        self.pid = pid = gevent.os.fork_and_watch()
         if pid == 0:
             self._child(c, run, *args, **kwargs)
             return
@@ -391,22 +389,19 @@ class Processlet(gevent.Greenlet):
     @classmethod
     def _parent(cls, sock, pid):
         """The body of a parent process."""
+        watcher = gevent.os._watched_children[pid]
         while True:
+            # NOTE: :func:`gevent.os.waitpid` will be cooperative since 1.2a1
+            # See this issue: https://github.com/gevent/gevent/issues/878
+            # __, stat = gevent.os.waitpid(pid, 0)
+            new_watcher = watcher.loop.child(pid, False)
             try:
-                print 'wait1...'
-                watcher = gevent.os._watched_children[pid]
-                gevent.get_hub().wait(watcher)
-                stat = watcher.rstatus
-                # print dir(watcher)
-                # print 'wait...', pid
-                # print gevent.os._watched_children
-                # __, stat = gevent.os.waitpid(pid, os.WNOHANG)
+                gevent.get_hub().wait(new_watcher)
             except BaseException as exc:
-                print `exc`
                 cls._send(sock, exc)
                 os.kill(pid, signal.SIGHUP)
             else:
-                print 'done', pid
+                stat = new_watcher.rstatus
                 break
         if os.WIFEXITED(stat):
             code = os.WEXITSTATUS(stat)
@@ -418,6 +413,8 @@ class Processlet(gevent.Greenlet):
         if ready:
             data = recv_enough(sock, HEADER_SIZE)
             ok, rv = cls._recv(sock, size_data=data)
+            if not ok and isinstance(rv, SystemExit):
+                rv = ProcessExit(rv.code)
         else:
             ok, rv = False, ProcessExit(code)
         return ok, rv, code

@@ -15,7 +15,6 @@ from gevent.event import AsyncResult, Event
 from gevent.lock import Semaphore
 from gevent.pool import Group
 from gevent.queue import Channel, Full
-import gipc
 import psutil
 import pytest
 
@@ -205,18 +204,13 @@ def test_processlet_start_twice():
 
 
 def test_kill_processlet(proc):
-    print -1
     job = lets.Processlet.spawn(raise_when_killed)
-    print 0
     job.join(0)
     assert len(proc.children()) == 1
-    print 1
     job.kill()
-    print 2
     assert len(proc.children()) == 0
     with pytest.raises(Killed):
         job.get()
-    print 3
     assert job.exit_code == 1
 
 
@@ -527,11 +521,6 @@ def test_greenlet_system_exit():
 
 
 def test_processlet_system_exit():
-    @gevent.spawn
-    def f():
-        while True:
-            gevent.sleep(0.5)
-            print '.'
     job = lets.Processlet.spawn(kill_itself)
     gevent.spawn(gevent.sleep, 0.1).join()
     with pytest.raises(lets.ProcessExit) as e:

@@ -81,13 +81,6 @@ class ProcessExit(BaseException):
         super(ProcessExit, self).__init__(code)
 
 
-class ProcessResult(BaseException):
-
-    def __init__(self, status):
-        self.status = status
-        super(ProcessResult, self).__init__(status)
-
-
 def call_and_put(function, args, kwargs, pipe):
     """Calls the function and sends result to the pipe."""
     def pipe_put(value):
@@ -400,7 +393,7 @@ class Processlet(gevent.Greenlet):
 
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
-        self.pid = pid = gevent.os.fork(callback=self._exited)
+        self.pid = pid = gevent.os.fork(callback=self._child_exited)
         if pid == 0:
             self._child(c, run, args, kwargs)
             return
@@ -410,11 +403,17 @@ class Processlet(gevent.Greenlet):
         else:
             raise rv
 
-    def _exited(self, watcher):
+    def _child_exited(self, watcher):
         watcher.stop()
         status = watcher.rstatus
-        self._result.set(status)
-        self.throw(ProcessResult(status))
+        if os.WIFEXITED(status):
+            code = os.WEXITSTATUS(status)
+        else:
+            assert os.WIFSIGNALED(status)
+            code = -os.WTERMSIG(status)
+        exc = ProcessExit(code)
+        self._result.set_exception(exc)
+        self.throw(exc)
 
     def _parent(self, sock, pid):
         """The body of a parent process."""
@@ -433,25 +432,22 @@ class Processlet(gevent.Greenlet):
             # Wait for the child exits.
             loop = gevent.get_hub().loop
             while True:
+                # NOTE: If we don't start a new watcher, the below
+                # :meth:`AsyncResult.get` will be failed with :exc:`LoopExit`.
+                # See this issue: https://github.com/gevent/gevent/issues/878
                 new_watcher = loop.child(pid, False)
-                new_watcher.start(lambda w: None)
+                new_watcher.start(lambda *x: None)
                 try:
-                    status = self._result.get()
-                except ProcessResult:
+                    self._result.get()
+                except ProcessExit:
                     raise
                 except BaseException as exc:
                     self._send(sock, exc)
                     os.kill(pid, signal.SIGHUP)
                 else:
                     break
-        except ProcessResult as exc:
-            status = exc.status
-        # Normalize child status.
-        if os.WIFEXITED(status):
-            code = os.WEXITSTATUS(status)
-        else:
-            assert os.WIFSIGNALED(status)
-            code = -os.WTERMSIG(status)
+        except ProcessExit as exc:
+            code = exc.code
         # Collect the function result.
         ready, __, __ = gevent.select.select([sock], [], [], 0)
         if ready:

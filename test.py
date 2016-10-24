@@ -214,15 +214,15 @@ def test_kill_processlet(proc):
     assert job.exit_code == 1
 
 
-def test_kill_processlets(proc):
+def test_kill_processlet_after_join_another_processlet(proc):
     job1 = lets.Processlet.spawn(gevent.sleep, 1)
     job2 = lets.Processlet.spawn(gevent.sleep, 3)
-    # job1.wait_starting()
     job1.join(0.1)
-    # assert job1.ready()
     with gevent.Timeout(1, AssertionError('job2.kill() timed out')):
         job2.kill()
     assert job2.ready()
+    job1.join()
+    assert job1.ready()
 
 
 def test_kill_processlet_nonblock(proc):

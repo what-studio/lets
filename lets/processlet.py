@@ -81,11 +81,11 @@ class ProcessExit(BaseException):
         super(ProcessExit, self).__init__(code)
 
 
-class ChildExit(BaseException):
+class ProcessResult(BaseException):
 
-    def __init__(self, stat):
-        self.stat = stat
-        super(ChildExit, self).__init__(stat)
+    def __init__(self, status):
+        self.status = status
+        super(ProcessResult, self).__init__(status)
 
 
 def call_and_put(function, args, kwargs, pipe):
@@ -377,7 +377,7 @@ class Processlet(gevent.Greenlet):
         args = (run,) + args
         super(Processlet, self).__init__(None, *args, **kwargs)
         self._started = gevent.event.Event()
-        self._exited = gevent.event.Event()
+        self._result = gevent.event.AsyncResult()
 
     @property
     def exit_code(self):
@@ -385,6 +385,9 @@ class Processlet(gevent.Greenlet):
 
     def started(self):
         return self._started.is_set()
+
+    def wait_starting(self, timeout=None):
+        return self._started.wait(timeout)
 
     def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
         """Kills the child process like a greenlet."""
@@ -397,10 +400,7 @@ class Processlet(gevent.Greenlet):
 
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
-        def callback(watcher):
-            self.throw(ChildExit(watcher.rstatus))
-            self._exited.set()
-        self.pid = pid = gevent.os.fork_and_watch(callback=callback)
+        self.pid = pid = gevent.os.fork(callback=self._exited)
         if pid == 0:
             self._child(c, run, args, kwargs)
             return
@@ -410,13 +410,19 @@ class Processlet(gevent.Greenlet):
         else:
             raise rv
 
+    def _exited(self, watcher):
+        watcher.stop()
+        status = watcher.rstatus
+        self._result.set(status)
+        self.throw(ProcessResult(status))
+
     def _parent(self, sock, pid):
         """The body of a parent process."""
-        watcher = gevent.os._watched_children[pid]
         try:
             # Wait for the child to start.
             sock.recv(1)
             self._started.set()
+            # Send an exception which is deferred before the child started.
             try:
                 exc = self._deferred_exception
             except AttributeError:
@@ -424,32 +430,29 @@ class Processlet(gevent.Greenlet):
             else:
                 del self._deferred_exception
                 self.kill(exc, block=False)
+            # Wait for the child exits.
+            loop = gevent.get_hub().loop
             while True:
-                new_watcher = watcher.loop.child(pid, False)
+                new_watcher = loop.child(pid, False)
+                new_watcher.start(lambda w: None)
                 try:
-                    # NOTE: It can work cooperatively since 1.2a1.
-                    # See issue: https://github.com/gevent/gevent/issues/878
-                    # gevent.os.waitpid(pid, 0)
-                    gevent.get_hub().wait(new_watcher)
-                except ChildExit:
+                    status = self._result.get()
+                except ProcessResult:
                     raise
                 except BaseException as exc:
-                    # import traceback
-                    # traceback.print_exc()
                     self._send(sock, exc)
                     os.kill(pid, signal.SIGHUP)
                 else:
                     break
-        except ChildExit as exc:
-            stat = exc.stat
+        except ProcessResult as exc:
+            status = exc.status
         # Normalize child status.
-        if os.WIFEXITED(stat):
-            code = os.WEXITSTATUS(stat)
-        elif os.WIFSIGNALED(stat):
-            code = -os.WTERMSIG(stat)
+        if os.WIFEXITED(status):
+            code = os.WEXITSTATUS(status)
         else:
-            assert False
-        # Collect result.
+            assert os.WIFSIGNALED(status)
+            code = -os.WTERMSIG(status)
+        # Collect the function result.
         ready, __, __ = gevent.select.select([sock], [], [], 0)
         if ready:
             ok, rv = self._recv(sock)
@@ -462,7 +465,9 @@ class Processlet(gevent.Greenlet):
     def _child(self, sock, run, args, kwargs):
         """The body of a child process."""
         # Cancel all scheduled greenlets.
+        gevent.reinit()
         gevent.get_hub().destroy(destroy_loop=True)
+        gevent.get_hub(default=True)
         # Reinit the socket because the hub has been destroyed.
         sock = gevent.socket.fromfd(sock.fileno(), sock.family, sock.proto)
         greenlet = Quietlet.spawn(run, *args, **kwargs)

@@ -563,11 +563,23 @@ def test_processlet_system_exit():
     assert job.exit_code == 42
 
 
-def test_processlet_exits_by_sigint():
+def _test_processlet_exits_by_sigint():
     job = lets.Processlet.spawn(busy_waiting, 10)
-    job.send(signal.SIGINT)
+    job.wait_starting()
+    os.kill(job.pid, signal.SIGINT)
     job.join()
     assert isinstance(job.get(), gevent.GreenletExit)
+
+
+def test_processlet_pause_and_resume():
+    job = lets.Processlet.spawn(lambda: gevent.sleep(2) or 42)
+    job.wait_starting()
+    os.kill(job.pid, signal.SIGSTOP)
+    gevent.sleep(1)
+    with pytest.raises(gevent.Timeout), gevent.Timeout(3):
+        job.join()
+    os.kill(job.pid, signal.SIGCONT)
+    assert job.get() == 42
 
 
 def test_quietlet_system_exit():

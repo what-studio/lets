@@ -446,6 +446,8 @@ class Processlet(gevent.Greenlet):
                     os.kill(pid, signal.SIGHUP)
                 else:
                     break
+                finally:
+                    new_watcher.stop()
         except ProcessExit as exc:
             code = exc.code
         # Collect the function result.

@@ -361,6 +361,23 @@ def recv_enough(sock, size):
     return buf.getvalue()
 
 
+SIGNAL_NUMBERS = [getattr(signal, name) for name in dir(signal) if
+                  name.startswith('SIG') and not name.startswith('SIG_') and
+                  name not in ['SIGSTOP', 'SIGKILL', 'SIGPIPE']]
+
+
+def reset_signal_handlers(signos=SIGNAL_NUMBERS):
+    for signo in signos:
+        if signo < signal.NSIG:
+            signal.signal(signo, signal.SIG_DFL)
+
+
+def reset_gevent():
+    gevent.reinit()
+    gevent.get_hub().destroy(destroy_loop=True)
+    gevent.get_hub(default=True)  # Here is necessary.
+
+
 class Processlet(gevent.Greenlet):
 
     pid = None
@@ -462,20 +479,19 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, sock, run, args, kwargs):
         """The body of a child process."""
-        # Cancel all scheduled greenlets.
-        gevent.reinit()
-        gevent.get_hub().destroy(destroy_loop=True)
-        gevent.get_hub(default=True)
+        # Reset environments.
+        reset_signal_handlers()
+        reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         sock = gevent.socket.fromfd(sock.fileno(), sock.family, sock.proto)
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         killed = lambda __, frame: self._child_killed(sock, greenlet, frame)
         assert signal.signal(signal.SIGHUP, killed) == 0
-        # Notify starting.
-        greenlet.join(0)
-        sock.send(b'\x00')
-        # Run the function.
         try:
+            # Notify starting.
+            greenlet.join(0)
+            sock.send(b'\x00')
+            # Run the function.
             rv = greenlet.get()
         except SystemExit as rv:
             ok, code = False, rv.code

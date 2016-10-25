@@ -421,7 +421,7 @@ def ref_count():
     return count_referrers
 
 
-def test_quietlet_no_leak(ref_count):
+def _test_quietlet_no_leak(ref_count):
     ref = weakref.ref(lets.Quietlet.spawn(divide_by_zero))
     gc.collect()
     assert isinstance(ref(), lets.Quietlet)

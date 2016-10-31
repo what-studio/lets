@@ -386,27 +386,27 @@ class Processlet(gevent.Greenlet):
     def __init__(self, run=None, *args, **kwargs):
         args = (run,) + args
         super(Processlet, self).__init__(None, *args, **kwargs)
-        self._started = gevent.event.Event()
+        # self._started = gevent.event.Event()
         self._result = gevent.event.AsyncResult()
 
     @property
     def exit_code(self):
         return self.code
 
-    def started(self):
-        return self._started.is_set()
+    # def started(self):
+    #     return self._started.is_set()
 
-    def wait_starting(self, timeout=None):
-        return self._started.wait(timeout)
+    # def wait_starting(self, timeout=None):
+    #     return self._started.wait(timeout)
 
-    def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
-        """Kills the child process like a greenlet."""
-        if not self.started():
-            self._deferred_exception = exception
-            if block:
-                self.join(timeout)
-            return
-        return super(Processlet, self).kill(exception, block, timeout)
+    # def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
+    #     """Kills the child process like a greenlet."""
+    #     if not self.started():
+    #         self._deferred_exception = exception
+    #         if block:
+    #             self.join(timeout)
+    #         return
+    #     return super(Processlet, self).kill(exception, block, timeout)
 
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
@@ -435,17 +435,17 @@ class Processlet(gevent.Greenlet):
     def _parent(self, sock, pid):
         """The body of a parent process."""
         try:
-            # Wait for the child to start.
-            sock.recv(1)
-            self._started.set()
-            # Send an exception which is deferred before the child started.
-            try:
-                exc = self._deferred_exception
-            except AttributeError:
-                pass
-            else:
-                del self._deferred_exception
-                self.kill(exc, block=False)
+            # # Wait for the child to start.
+            # sock.recv(1)
+            # self._started.set()
+            # # Send an exception which is deferred before the child started.
+            # try:
+            #     exc = self._deferred_exception
+            # except AttributeError:
+            #     pass
+            # else:
+            #     del self._deferred_exception
+            #     self.kill(exc, block=False)
             # Wait for the child exits.
             loop = gevent.get_hub().loop
             while True:
@@ -486,11 +486,14 @@ class Processlet(gevent.Greenlet):
         sock = gevent.socket.fromfd(sock.fileno(), sock.family, sock.proto)
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         killed = lambda __, frame: self._child_killed(sock, greenlet, frame)
-        assert signal.signal(signal.SIGHUP, killed) == 0
+        signal.signal(signal.SIGHUP, killed)
+        # busy = lambda __, frame: sock.send(b'\x00')
+        # signal.signal(signal.SIGALRM, busy)
+        # signal.setitimer(signal.ITIMER_REAL, 0.001)
+        # greenlet.join(0)
         try:
-            # Notify starting.
-            greenlet.join(0)
-            sock.send(b'\x00')
+            # # Notify starting.
+            # sock.send(b'\x00')
             # Run the function.
             rv = greenlet.get()
         except SystemExit as rv:
@@ -528,3 +531,30 @@ class Processlet(gevent.Greenlet):
         size, = struct.unpack(HEADER_SPEC, size_data)
         data = recv_enough(sock, size)
         return pickle.loads(data)
+
+
+class Hole(object):
+
+    def __init__(self, socket):
+        self.socket = socket
+
+    def put(self, value):
+        data = pickle.dumps(value)
+        self.socket.send(struct.pack(HEADER_SPEC, len(data)) + data)
+
+    def get(self):
+        size_data = recv_enough(self.socket, HEADER_SIZE)
+        size, = struct.unpack(HEADER_SPEC, size_data)
+        data = recv_enough(self.socket, size)
+        return pickle.loads(data)
+
+    def __getstate__(self):
+        return (self.socket.fileno(), self.socket.family, self.socket.proto)
+
+    def __setstate__(self, (fd, family, proto)):
+        self.socket = gevent.socket.fromfd(fd, family, proto)
+
+
+def pipe():
+    left, right = gevent.socket.socketpair()
+    return Hole(left), Hole(right)

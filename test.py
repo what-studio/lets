@@ -95,6 +95,17 @@ class ExpectedError(BaseException):
     pass
 
 
+def notify_entry(pipe, f, *args, **kwargs):
+    g = lets.Quietlet.spawn(f, *args, **kwargs)
+    g.join(0)
+    try:
+        pipe.put(True)
+        return g.get()
+    except BaseException as exc:
+        g.kill(exc)
+        return g.get()
+
+
 def raise_when_killed(exception=Killed):
     try:
         while True:
@@ -209,6 +220,27 @@ def test_processlet_start_twice():
 #             job.link(lambda j: (j.join(), r.append(1)))
 #         pool.join()
 #     assert len(r) == 10
+
+
+def test_kill_processlet_before_starting(proc):
+    job = lets.Processlet.spawn(raise_when_killed)
+    assert len(proc.children()) == 0
+    job.kill()
+    assert isinstance(job.get(), GreenletExit)
+    assert len(proc.children()) == 0
+
+
+def test_kill_processlet_after_starting(proc):
+    p, c = lets.processlet.pipe()
+    job = lets.Processlet.spawn(notify_entry, c, raise_when_killed)
+    assert len(proc.children()) == 0
+    assert p.get() is True
+    assert len(proc.children()) == 1
+    job.kill()
+    assert len(proc.children()) == 0
+    with pytest.raises(Killed):
+        job.get()
+    assert job.exit_code == 1
 
 
 def test_kill_processlet(proc):
@@ -554,8 +586,10 @@ def test_processlet_system_exit():
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM
-    job = lets.Processlet.spawn(raise_when_killed, SystemExit(42))
-    job.join(0)
+    p, c = lets.processlet.pipe()
+    job = lets.Processlet.spawn(notify_entry, c, raise_when_killed,
+                                SystemExit(42))
+    p.get()
     job.kill()
     with pytest.raises(lets.ProcessExit) as e:
         job.get()
@@ -572,8 +606,9 @@ def _test_processlet_exits_by_sigint():
 
 
 def test_processlet_pause_and_resume():
-    job = lets.Processlet.spawn(lambda: gevent.sleep(2) or 42)
-    job.wait_starting()
+    p, c = lets.processlet.pipe()
+    job = lets.Processlet.spawn(notify_entry, c, lambda: gevent.sleep(2) or 42)
+    p.get()
     os.kill(job.pid, signal.SIGSTOP)
     gevent.sleep(1)
     with pytest.raises(gevent.Timeout), gevent.Timeout(3):

@@ -10,7 +10,7 @@
 
 """
 import operator
-from time import time as now
+import time as time_
 
 from gevent import get_hub, Timeout
 from gevent.event import Event
@@ -46,7 +46,7 @@ class _Alarm(object):
             # Not accepted.
             return False
         self._reset(time, value)
-        delay = time - now()
+        delay = time - time_.time()
         if delay > 0:
             # Set timer to wake up.
             self.timer = get_hub().loop.timer(delay)

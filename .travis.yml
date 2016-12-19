@@ -6,9 +6,9 @@ python:
 env:
   matrix:
   -
-  - GEVENT_VERSION=1.1.2 GIPC_VERSION=0.6.0
-  - GEVENT_VERSION=1.1.1 GIPC_VERSION=0.6.0
-  - GEVENT_VERSION=1.1.0 GIPC_VERSION=0.6.0
+  - GEVENT_VERSION=1.1.2
+  - GEVENT_VERSION=1.1.1
+  - GEVENT_VERSION=1.1.0
 install:
 - pip install -U pytest
 - pip install coveralls
@@ -17,11 +17,6 @@ install:
     pip install gevent
   else
     pip install gevent==$GEVENT_VERSION
-  fi
-  if [[ -z "$GIPC_VERSION" ]]; then
-    pip install gipc
-  else
-    pip install gipc==$GIPC_VERSION
   fi
   pip install -e .
 script:

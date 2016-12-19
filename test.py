@@ -409,11 +409,23 @@ def test_joinall_processlets():
 #     assert len(proc.children()) == 0
 
 
+@contextmanager
+def raises_from(exc_type, code_name):
+    try:
+        yield
+    except exc_type:
+        __, __, tb = sys.exc_info()
+        while tb.tb_next is not None:
+            tb = tb.tb_next
+        assert tb.tb_frame.f_code.co_name == code_name
+    else:
+        raise AssertionError('Expected error not raised')
+
+
 def test_quietlet():
     job = lets.Quietlet.spawn(divide_by_zero)
-    with pytest.raises(ZeroDivisionError) as e:
+    with raises_from(ZeroDivisionError, 'divide_by_zero'):
         job.get()
-    assert e.traceback[-1].name == 'divide_by_zero'
 
 
 def test_quietlet_doesnt_print_exception(capsys):
@@ -479,9 +491,8 @@ def test_quiet_group():
     group = Group()
     group.spawn(divide_by_zero)
     group.spawn(divide_by_zero)
-    with pytest.raises(ZeroDivisionError) as e:
+    with raises_from(ZeroDivisionError, 'divide_by_zero'):
         group.join(raise_error=True)
-    assert e.traceback[-1].name == 'divide_by_zero'
 
 
 def test_greenlet_exit(group):

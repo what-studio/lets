@@ -61,7 +61,6 @@ import gevent.queue
 import gevent.select
 import gevent.signal
 import gevent.socket
-import gipc
 
 from .objectpool import ObjectPool
 from .quietlet import Quietlet

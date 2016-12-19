@@ -2,7 +2,7 @@ language: python
 sudo: false
 python:
 - 2.7
-# pypy  # gipc doesn't support PyPy.
+- pypy
 env:
   matrix:
   -

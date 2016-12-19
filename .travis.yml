@@ -6,6 +6,8 @@ python:
 env:
   matrix:
   -
+  - GEVENT_VERSION=1.2a2
+  - GEVENT_VERSION=1.2a1
   - GEVENT_VERSION=1.1.2
   - GEVENT_VERSION=1.1.1
   - GEVENT_VERSION=1.1.0

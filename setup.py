@@ -125,8 +125,7 @@ with open(os.path.join(__dir__, 'lets', '__about__.py')) as f:
 
 # use pytest instead.
 def run_tests(self):
-    raise SystemExit(__import__('pytest').main(['-vsk',
-                                                'test_kill_processlet__']))
+    raise SystemExit(__import__('pytest').main(['-v']))
 test.run_tests = run_tests
 
 

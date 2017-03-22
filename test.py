@@ -243,7 +243,7 @@ def test_kill_processlet_after_starting(proc):
     assert job.exit_code == 1
 
 
-def test_kill_processlet__(proc):
+def test_kill_processlet(proc):
     job = lets.Processlet.spawn(raise_when_killed)
     job.wait_starting()
     assert len(proc.children()) == 1

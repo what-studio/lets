@@ -471,13 +471,14 @@ class Processlet(gevent.Greenlet):
             print 'ProcessExit raised #2'
             code = exc.code
         # Collect the function result.
-        ready, __, __ = gevent.select.select([sock], [], [], 0)
+        ready, __, __ = gevent.select.select([sock], [], [], 1)
         if ready:
             ok, rv = self._recv(sock)
             print 'Received', ok, `rv`
             if not ok and isinstance(rv, SystemExit):
                 rv = ProcessExit(rv.code)
         else:
+            print 'Not received'
             ok, rv = False, ProcessExit(code)
         print 'Returns', ok, `rv`, code
         return ok, rv, code

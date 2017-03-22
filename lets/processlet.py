@@ -456,24 +456,30 @@ class Processlet(gevent.Greenlet):
                 try:
                     self._result.get()
                 except ProcessExit:
+                    print 'ProcessExit raised #1'
                     raise
                 except BaseException as exc:
+                    print 'Exception raised:', `exc`
                     self._send(sock, exc)
                     os.kill(pid, signal.SIGHUP)
+                    print 'So killed the child.'
                 else:
                     break
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:
+            print 'ProcessExit raised #2'
             code = exc.code
         # Collect the function result.
         ready, __, __ = gevent.select.select([sock], [], [], 0)
         if ready:
             ok, rv = self._recv(sock)
+            print 'Received', ok, `rv`
             if not ok and isinstance(rv, SystemExit):
                 rv = ProcessExit(rv.code)
         else:
             ok, rv = False, ProcessExit(code)
+        print 'Returns', ok, `rv`, code
         return ok, rv, code
 
     def _child(self, sock, run, args, kwargs):

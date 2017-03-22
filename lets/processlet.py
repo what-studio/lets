@@ -509,7 +509,9 @@ class Processlet(gevent.Greenlet):
         else:
             ok, code = True, 0
         # Notify the result.
+        print 'Child sends', ok, `rv`
         self._send(sock, (ok, rv))
+        print 'Child exits with', code
         os._exit(code)
 
     @classmethod

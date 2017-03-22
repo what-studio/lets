@@ -13,17 +13,17 @@
 """
 from __future__ import absolute_import
 
-from .__about__ import __version__  # noqa
-from .alarm import Alarm, Earliest, Latest
-from .atomicity import atomic
-from .jobqueue import JobQueue
-from .objectpool import ObjectPool
-from .processlet import ProcessExit, Processlet, ProcessLocal, ProcessPool
-from .quietlet import Quietlet
-from .slavery import (
+from lets.__about__ import __version__  # noqa
+from lets.alarm import Alarm, Earliest, Latest
+from lets.atomicity import atomic
+from lets.jobqueue import JobQueue
+from lets.objectpool import ObjectPool
+from lets.processlet import ProcessExit, Processlet, ProcessLocal, ProcessPool
+from lets.quietlet import Quietlet
+from lets.slavery import (
     join_slaves, link_partner, link_slave, MasterGreenletExit, spawn_partner,
     spawn_partner_later, spawn_slave, spawn_slave_later)
-from .transparentlet import TransparentGroup, Transparentlet
+from lets.transparentlet import TransparentGroup, Transparentlet
 
 
 __all__ = ['Alarm', 'atomic', 'Earliest', 'JobQueue', 'join_slaves', 'Latest',

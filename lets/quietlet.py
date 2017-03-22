@@ -14,7 +14,7 @@ from __future__ import absolute_import
 
 import gevent
 
-from .utils import hub_replacer, HubWrapper
+from lets.utils import hub_replacer, HubWrapper
 
 
 __all__ = ['Quietlet', 'quiet']

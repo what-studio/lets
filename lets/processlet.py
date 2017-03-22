@@ -485,6 +485,7 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, sock, run, args, kwargs):
         """The body of a child process."""
+        print 'Child is starting...'
         # Reset environments.
         reset_signal_handlers()
         reset_gevent()
@@ -493,6 +494,7 @@ class Processlet(gevent.Greenlet):
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         killed = lambda __, frame: self._child_killed(sock, greenlet, frame)
         signal.signal(signal.SIGHUP, killed)
+        print 'Child registered SIGHUP handler'
         # busy = lambda __, frame: sock.send(b'\x00')
         # signal.signal(signal.SIGALRM, busy)
         # signal.setitimer(signal.ITIMER_REAL, 0.001)

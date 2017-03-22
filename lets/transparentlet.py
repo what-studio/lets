@@ -16,8 +16,8 @@ from __future__ import absolute_import
 
 from gevent.pool import Group as TransparentGroup
 
-from .quietlet import quiet as no_error_handling
-from .quietlet import Quietlet as Transparentlet
+from lets.quietlet import quiet as no_error_handling
+from lets.quietlet import Quietlet as Transparentlet
 
 
 __all__ = ['Transparentlet', 'TransparentGroup', 'no_error_handling']

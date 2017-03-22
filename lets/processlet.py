@@ -62,8 +62,8 @@ import gevent.select
 import gevent.signal
 import gevent.socket
 
-from .objectpool import ObjectPool
-from .quietlet import Quietlet
+from lets.objectpool import ObjectPool
+from lets.quietlet import Quietlet
 
 
 __all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal']

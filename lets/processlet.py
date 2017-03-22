@@ -385,18 +385,18 @@ class Processlet(gevent.Greenlet):
     def __init__(self, run=None, *args, **kwargs):
         args = (run,) + args
         super(Processlet, self).__init__(None, *args, **kwargs)
-        # self._started = gevent.event.Event()
+        self._started = gevent.event.Event()
         self._result = gevent.event.AsyncResult()
 
     @property
     def exit_code(self):
         return self.code
 
-    # def started(self):
-    #     return self._started.is_set()
+    def started(self):
+        return self._started.is_set()
 
-    # def wait_starting(self, timeout=None):
-    #     return self._started.wait(timeout)
+    def wait_starting(self, timeout=None):
+        return self._started.wait(timeout)
 
     # def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
     #     """Kills the child process like a greenlet."""
@@ -434,9 +434,9 @@ class Processlet(gevent.Greenlet):
     def _parent(self, sock, pid):
         """The body of a parent process."""
         try:
-            # # Wait for the child to start.
-            # sock.recv(1)
-            # self._started.set()
+            # Wait for the child to start.
+            sock.recv(1)
+            self._started.set()
             # # Send an exception which is deferred before the child started.
             # try:
             #     exc = self._deferred_exception
@@ -500,8 +500,8 @@ class Processlet(gevent.Greenlet):
         # signal.setitimer(signal.ITIMER_REAL, 0.001)
         # greenlet.join(0)
         try:
-            # # Notify starting.
-            # sock.send(b'\x00')
+            # Notify starting.
+            sock.send(b'\x00')
             # Run the function.
             rv = greenlet.get()
         except SystemExit as rv:

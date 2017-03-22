@@ -519,10 +519,14 @@ class Processlet(gevent.Greenlet):
         """A signal handler on a child process to detect killing exceptions
         from the parent process.
         """
+        print 'Child is killed'
         exc = cls._recv(sock)
+        print 'Child got exception:', `exc`
         if greenlet.gr_frame in [frame, None]:
             # The greenlet is busy.
+            print 'Child greenlet is busy'
             raise exc
+        print 'Child greenlet will be killed'
         greenlet.kill(exc, block=False)
 
     @staticmethod

@@ -8,7 +8,7 @@
    If you want to just prevent to print an exception by the hub, use
    :mod:`lets.quietlet` instead.
 
-   :copyright: (c) 2013-2016 by Heungsub Lee
+   :copyright: (c) 2013-2017 by Heungsub Lee
    :license: BSD, see LICENSE for more details.
 
 """

@@ -520,8 +520,8 @@ class Processlet(gevent.Greenlet):
     def _send(sock, value):
         """Sends a Python value through the socket."""
         data = pickle.dumps(value)
-        sock.send(struct.pack(HEADER_SPEC, len(data)))
-        sock.send(data)
+        sock.sendall(struct.pack(HEADER_SPEC, len(data)))
+        sock.sendall(data)
 
     @staticmethod
     def _recv(sock):

@@ -69,7 +69,7 @@ from lets.quietlet import Quietlet
 __all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal']
 
 
-class ProcessExit(BaseException):
+class ProcessExit(Exception):
     """Originally, :exc:`SystemExit` kills all independent gevent waitings.
     To prevent killing the current process, :class:`Processlet` replaces
     :exc:`SystemExit` from child process with this exception.

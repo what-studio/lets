@@ -492,9 +492,19 @@ class Processlet(gevent.Greenlet):
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         sock = gevent.socket.fromfd(sock.fileno(), sock.family, sock.proto)
-        greenlet = Quietlet.spawn(run, *args, **kwargs)
-        killed = lambda __, frame: self._child_killed(sock, greenlet, frame)
+
+        killed = lambda __, frame: self._child_killed_before_greenlet(sock)
         signal.signal(signal.SIGHUP, killed)
+
+        greenlet = Quietlet.spawn(run, *args, **kwargs)
+        greenlet.join(0)
+
+        if self._exc is not None:
+            greenlet.kill(self._exc, block=False)
+        else:
+            killed = lambda __, frame: self._child_killed(sock, greenlet, frame)
+            signal.signal(signal.SIGHUP, killed)
+
         print 'Child registered SIGHUP handler'
         # busy = lambda __, frame: sock.send(b'\x00')
         # signal.signal(signal.SIGALRM, busy)
@@ -517,6 +527,14 @@ class Processlet(gevent.Greenlet):
         print 'Child exits with', code
         os._exit(code)
 
+    _exc = None
+
+    def _child_killed_before_greenlet(self, sock):
+        print 'Child is killed before greenlet'
+        exc = self._recv(sock)
+        print 'Child should get exception:', `exc`
+        self._exc = exc
+
     @classmethod
     def _child_killed(cls, sock, greenlet, frame):
         """A signal handler on a child process to detect killing exceptions
@@ -527,7 +545,7 @@ class Processlet(gevent.Greenlet):
         print 'Child got exception:', `exc`
         if greenlet.gr_frame in [frame, None]:
             # The greenlet is busy.
-            print 'Child greenlet is busy'
+            print 'Child greenlet is busy #2:', greenlet.gr_frame
             raise exc
         print 'Child greenlet will be killed'
         greenlet.kill(exc, block=False)

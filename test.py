@@ -246,7 +246,7 @@ def test_kill_processlet_after_starting(proc):
 
 def test_kill_processlet(proc):
     job = lets.Processlet.spawn(raise_when_killed)
-    job.wait_starting()
+    job.join(0)
     assert len(proc.children()) == 1
     job.kill()
     assert len(proc.children()) == 0
@@ -268,7 +268,7 @@ def test_kill_processlet_after_join_another_processlet(proc):
 
 def test_kill_processlet_nonblock(proc):
     job = lets.Processlet.spawn(raise_when_killed)
-    job.wait_starting()
+    job.join(0)
     assert len(proc.children()) == 1
     job.kill(block=False)
     assert len(proc.children()) == 1
@@ -611,7 +611,7 @@ def test_processlet_system_exit():
 
 def _test_processlet_exits_by_sigint():
     job = lets.Processlet.spawn(busy_waiting, 10)
-    job.wait_starting()
+    job.join(0)
     os.kill(job.pid, signal.SIGINT)
     job.join()
     assert isinstance(job.get(), gevent.GreenletExit)

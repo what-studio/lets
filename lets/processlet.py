@@ -385,18 +385,18 @@ class Processlet(gevent.Greenlet):
     def __init__(self, run=None, *args, **kwargs):
         args = (run,) + args
         super(Processlet, self).__init__(None, *args, **kwargs)
-        self._started = gevent.event.Event()
+        # self._started = gevent.event.Event()
         self._result = gevent.event.AsyncResult()
 
     @property
     def exit_code(self):
         return self.code
 
-    def started(self):
-        return self._started.is_set()
+    # def started(self):
+    #     return self._started.is_set()
 
-    def wait_starting(self, timeout=None):
-        return self._started.wait(timeout)
+    # def wait_starting(self, timeout=None):
+    #     return self._started.wait(timeout)
 
     # def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
     #     """Kills the child process like a greenlet."""
@@ -431,8 +431,14 @@ class Processlet(gevent.Greenlet):
         self._result.set_exception(exc)
         self.throw(exc)
 
+    def _wait_child_prepared(cls, sock, result):
+        sock.recv(1)
+        result.set()
+
     def _parent(self, sock, pid):
         """The body of a parent process."""
+        prepared = gevent.event.Event()
+        gevent.spawn(self._wait_child_prepared, sock, prepared)
         try:
             # # Send an exception which is deferred before the child started.
             # try:
@@ -451,14 +457,15 @@ class Processlet(gevent.Greenlet):
                 new_watcher = loop.child(pid, False)
                 new_watcher.start(lambda *x: None)
                 try:
-                    if not self._started.is_set():
-                        # Wait for the child to start.
-                        sock.recv(1)
-                        self._started.set()
+                    # if not self._started.is_set():
+                    #     # Wait for the child to start.
+                    #     sock.recv(1)
+                    #     self._started.set()
                     self._result.get()
                 except ProcessExit:
                     raise
                 except (gevent.GreenletExit, Exception) as exc:
+                    prepared.wait()
                     self._send(sock, exc)
                     os.kill(pid, signal.SIGHUP)
                 else:

@@ -638,27 +638,32 @@ def test_quietlet_system_exit():
     assert isinstance(job.exception, SystemExit)
 
 
-def test_object_pool():
+def test_object_pool__():
     # getting object blocks
     pool = lets.ObjectPool(2, object)
     assert pool.available()
+    print 1
     o1 = pool.get()
     assert pool.available()
+    print 2
     o2 = pool.get()
     assert not pool.available()
     with pytest.raises(gevent.hub.LoopExit):
+        print 3
         pool.get()
     assert o1 is not o2
     assert len(pool.objects) == 2
     # release and get again
     pool.release(o1)
     assert pool.available()
+    print 4
     o3 = pool.get()
     assert not pool.available()
     assert o1 is o3
     assert len(pool.objects) == 2
     # discard
     pool.discard(o2)
+    print 5
     o4 = pool.get()
     assert not pool.available()
     assert o2 is not o4

@@ -434,9 +434,6 @@ class Processlet(gevent.Greenlet):
     def _parent(self, sock, pid):
         """The body of a parent process."""
         try:
-            # Wait for the child to start.
-            sock.recv(1)
-            self._started.set()
             # # Send an exception which is deferred before the child started.
             # try:
             #     exc = self._deferred_exception
@@ -454,11 +451,15 @@ class Processlet(gevent.Greenlet):
                 new_watcher = loop.child(pid, False)
                 new_watcher.start(lambda *x: None)
                 try:
+                    if not self._started.is_set():
+                        # Wait for the child to start.
+                        sock.recv(1)
+                        self._started.set()
                     self._result.get()
                 except ProcessExit:
                     print 'ProcessExit raised #1'
                     raise
-                except BaseException as exc:
+                except (gevent.GreenletExit, Exception) as exc:
                     print 'Exception raised:', `exc`
                     self._send(sock, exc)
                     os.kill(pid, signal.SIGHUP)

@@ -457,55 +457,48 @@ class Processlet(gevent.Greenlet):
                         self._started.set()
                     self._result.get()
                 except ProcessExit:
-                    print 'ProcessExit raised #1'
                     raise
                 except (gevent.GreenletExit, Exception) as exc:
-                    print 'Exception raised:', `exc`
                     self._send(sock, exc)
                     os.kill(pid, signal.SIGHUP)
-                    print 'So killed the child.'
                 else:
                     break
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:
-            print 'ProcessExit raised #2'
             code = exc.code
         # Collect the function result.
         ready, __, __ = gevent.select.select([sock], [], [], 1)
         if ready:
             ok, rv = self._recv(sock)
-            print 'Received', ok, `rv`
             if not ok and isinstance(rv, SystemExit):
                 rv = ProcessExit(rv.code)
         else:
-            print 'Not received'
             ok, rv = False, ProcessExit(code)
-        print 'Returns', ok, `rv`, code
         return ok, rv, code
 
     def _child(self, sock, run, args, kwargs):
         """The body of a child process."""
-        print 'Child is starting...'
         # Reset environments.
         reset_signal_handlers()
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         sock = gevent.socket.fromfd(sock.fileno(), sock.family, sock.proto)
-
-        killed = lambda __, frame: self._child_killed_before_greenlet(sock)
-        signal.signal(signal.SIGHUP, killed)
-
+        # Catch exception before the greenlet is ready.
+        early_exc = gevent.event.AsyncResult()
+        signal.signal(signal.SIGHUP,
+                      lambda g, f: self._child_killed_early(sock, early_exc))
+        # Spawn and ensure to be started the greenlet.
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         greenlet.join(0)
-
-        if self._exc is not None:
-            greenlet.kill(self._exc, block=False)
+        # Kill the greenlet if there's early exception.  Otherwise, register
+        # the formal exception catcher.
+        if early_exc.ready():
+            signal.signal(signal.SIGHUP, signal.SIG_IGN)
+            greenlet.kill(early_exc.exception, block=False)
         else:
-            killed = lambda __, frame: self._child_killed(sock, greenlet, frame)
-            signal.signal(signal.SIGHUP, killed)
-
-        print 'Child registered SIGHUP handler'
+            signal.signal(signal.SIGHUP,
+                          lambda g, f: self._child_killed(sock, greenlet, f))
         # busy = lambda __, frame: sock.send(b'\x00')
         # signal.signal(signal.SIGALRM, busy)
         # signal.setitimer(signal.ITIMER_REAL, 0.001)
@@ -522,32 +515,23 @@ class Processlet(gevent.Greenlet):
         else:
             ok, code = True, 0
         # Notify the result.
-        print 'Child sends', ok, `rv`
         self._send(sock, (ok, rv))
-        print 'Child exits with', code
         os._exit(code)
 
-    _exc = None
-
-    def _child_killed_before_greenlet(self, sock):
-        print 'Child is killed before greenlet'
-        exc = self._recv(sock)
-        print 'Child should get exception:', `exc`
-        self._exc = exc
+    @classmethod
+    def _child_killed_early(cls, sock, result):
+        exc = cls._recv(sock)
+        result.set_exception(exc)
 
     @classmethod
     def _child_killed(cls, sock, greenlet, frame):
         """A signal handler on a child process to detect killing exceptions
         from the parent process.
         """
-        print 'Child is killed'
         exc = cls._recv(sock)
-        print 'Child got exception:', `exc`
-        if greenlet.gr_frame in [frame, None]:
+        if greenlet.gr_frame is frame:
             # The greenlet is busy.
-            print 'Child greenlet is busy #2:', greenlet.gr_frame
             raise exc
-        print 'Child greenlet will be killed'
         greenlet.kill(exc, block=False)
 
     @staticmethod

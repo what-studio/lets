@@ -139,6 +139,7 @@ def test_processlet_join_zero():
 
 @pytest.mark.flaky(reruns=10)
 def test_processlet_parallel_execution():
+    # NOTE: Here's a potential hang.
     cpu_count = multiprocessing.cpu_count()
     if cpu_count < 2:
         pytest.skip('CPU not enough')

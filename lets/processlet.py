@@ -415,15 +415,9 @@ class Processlet(gevent.Greenlet):
         self._result.set_exception(exc)
         self.throw(exc)
 
-    @staticmethod
-    def _wait_child_prepared(sock, result):
-        sock.recv(1)
-        result.set()
-
     def _parent(self, sock, pid):
         """The body of a parent process."""
-        prepared = gevent.event.Event()
-        gevent.spawn(self._wait_child_prepared, sock, prepared)
+        child_ready = gevent.spawn(sock.recv, 1)
         try:
             # Wait for the child exits.
             loop = gevent.get_hub().loop
@@ -438,7 +432,7 @@ class Processlet(gevent.Greenlet):
                 except ProcessExit:
                     raise
                 except (gevent.GreenletExit, Exception) as exc:
-                    prepared.wait()
+                    child_ready.join()
                     self._send(sock, exc)
                     os.kill(pid, signal.SIGHUP)
                 else:

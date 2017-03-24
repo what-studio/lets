@@ -60,12 +60,13 @@ class ObjectPool(object):
         self._lock.wait(timeout)
         self._queue.peek(timeout=timeout)
 
-    def get(self):
+    def get(self, block=True, timeout=None):
         """Gets an object.  When the pool is available but doesn't have an
         object yet, it creates a new object.  It also acquires the lock.  Don't
         forget release the object got to the pool.
         """
-        self._lock.acquire()
+        if not self._lock.acquire(block, timeout):
+            raise gevent.Timeout(timeout)
         while True:
             try:
                 obj = self._queue.get(block=False)

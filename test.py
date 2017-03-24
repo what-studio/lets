@@ -443,7 +443,6 @@ def ref_count():
         refs = gc.get_referrers(x)
         refs = reduce(lambda refs, r: refs.append(r) or refs
                       if r not in refs else refs, refs, [])
-        print refs
         return len(refs)
     return count_referrers
 
@@ -620,14 +619,12 @@ def test_quietlet_system_exit():
     assert isinstance(job.exception, SystemExit)
 
 
-def test_object_pool__():
+def test_object_pool():
     # getting object blocks
     pool = lets.ObjectPool(2, object)
     assert pool.available()
-    print 1
     o1 = pool.get()
     assert pool.available()
-    print 2
     o2 = pool.get()
     assert not pool.available()
     with pytest.raises(gevent.Timeout):
@@ -637,14 +634,12 @@ def test_object_pool__():
     # release and get again
     pool.release(o1)
     assert pool.available()
-    print 4
     o3 = pool.get()
     assert not pool.available()
     assert o1 is o3
     assert len(pool.objects) == 2
     # discard
     pool.discard(o2)
-    print 5
     o4 = pool.get()
     assert not pool.available()
     assert o2 is not o4

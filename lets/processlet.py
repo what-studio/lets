@@ -385,27 +385,11 @@ class Processlet(gevent.Greenlet):
     def __init__(self, run=None, *args, **kwargs):
         args = (run,) + args
         super(Processlet, self).__init__(None, *args, **kwargs)
-        # self._started = gevent.event.Event()
         self._result = gevent.event.AsyncResult()
 
     @property
     def exit_code(self):
         return self.code
-
-    # def started(self):
-    #     return self._started.is_set()
-
-    # def wait_starting(self, timeout=None):
-    #     return self._started.wait(timeout)
-
-    # def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
-    #     """Kills the child process like a greenlet."""
-    #     if not self.started():
-    #         self._deferred_exception = exception
-    #         if block:
-    #             self.join(timeout)
-    #         return
-    #     return super(Processlet, self).kill(exception, block, timeout)
 
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
@@ -431,7 +415,8 @@ class Processlet(gevent.Greenlet):
         self._result.set_exception(exc)
         self.throw(exc)
 
-    def _wait_child_prepared(cls, sock, result):
+    @staticmethod
+    def _wait_child_prepared(sock, result):
         sock.recv(1)
         result.set()
 
@@ -440,14 +425,6 @@ class Processlet(gevent.Greenlet):
         prepared = gevent.event.Event()
         gevent.spawn(self._wait_child_prepared, sock, prepared)
         try:
-            # # Send an exception which is deferred before the child started.
-            # try:
-            #     exc = self._deferred_exception
-            # except AttributeError:
-            #     pass
-            # else:
-            #     del self._deferred_exception
-            #     self.kill(exc, block=False)
             # Wait for the child exits.
             loop = gevent.get_hub().loop
             while True:
@@ -457,10 +434,6 @@ class Processlet(gevent.Greenlet):
                 new_watcher = loop.child(pid, False)
                 new_watcher.start(lambda *x: None)
                 try:
-                    # if not self._started.is_set():
-                    #     # Wait for the child to start.
-                    #     sock.recv(1)
-                    #     self._started.set()
                     self._result.get()
                 except ProcessExit:
                     raise
@@ -506,10 +479,6 @@ class Processlet(gevent.Greenlet):
         else:
             signal.signal(signal.SIGHUP,
                           lambda g, f: self._child_killed(sock, greenlet, f))
-        # busy = lambda __, frame: sock.send(b'\x00')
-        # signal.signal(signal.SIGALRM, busy)
-        # signal.setitimer(signal.ITIMER_REAL, 0.001)
-        # greenlet.join(0)
         try:
             # Notify starting.
             sock.send(b'\x00')

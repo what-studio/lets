@@ -166,10 +166,10 @@ def test_processlet_without_start():
     job = lets.Processlet(os.getppid)
     assert job.exit_code is None
     assert job.pid is None
-    with pytest.raises(gevent.hub.LoopExit):
+    with pytest.raises(gevent.Timeout), gevent.Timeout(0.1):
         job.join()
-    with pytest.raises(gevent.hub.LoopExit):
-        job.get()
+    with pytest.raises(gevent.Timeout):
+        job.get(timeout=0.1)
 
 
 def test_processlet_unref():
@@ -630,9 +630,8 @@ def test_object_pool__():
     print 2
     o2 = pool.get()
     assert not pool.available()
-    with pytest.raises(gevent.hub.LoopExit):
-        print 3
-        pool.get()
+    with pytest.raises(gevent.Timeout):
+        pool.get(timeout=0.1)
     assert o1 is not o2
     assert len(pool.objects) == 2
     # release and get again

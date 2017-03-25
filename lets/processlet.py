@@ -292,13 +292,8 @@ class ProcessPool(gevent.pool.Pool):
                 value = function(*args, **kwargs)
             except gevent.GreenletExit as exc:
                 _put((True, exc))
-            except SystemExit as exc:
-                exc_info = sys.exc_info()
-                _put((False, exc))
-                raise exc_info[0], exc_info[1], exc_info[2]
             except BaseException as exc:
                 _put((False, exc))
-                raise SystemExit(1)
             else:
                 _put((True, value))
 

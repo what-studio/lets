@@ -543,6 +543,12 @@ class Processlet(gevent.Greenlet):
         greenlet.kill(exc, block=False)
 
 
+def pipe():
+    """Opens 2 :class:`Hole`s which are pairing with each other."""
+    left, right = gevent.socket.socketpair()
+    return Hole(left), Hole(right)
+
+
 class Hole(object):
     """A socket holder to pass a socket into a :class:`Processlet` safely."""
 
@@ -555,20 +561,22 @@ class Hole(object):
         self._socket = socket
         self._hub_id = id(gevent.get_hub())
 
-    def socket(self):
-        hub_id = id(gevent.get_hub())
-        if hub_id != getattr(self, '_hub_id', -1):
-            self._hub_id = hub_id
-            self._socket = fromfd(self.fileno, self.family, self.proto)
-        return self._socket
-
     def __getstate__(self):
         return (self.fileno, self.family, self.proto)
 
     def __setstate__(self, (fileno, family, proto)):
         self.fileno, self.family, self.proto = fileno, family, proto
 
+    def socket(self):
+        """Gets the underlying socket safely."""
+        hub_id = id(gevent.get_hub())
+        if hub_id != getattr(self, '_hub_id', -1):
+            self._hub_id = hub_id
+            self._socket = fromfd(self.fileno, self.family, self.proto)
+        return self._socket
 
-def pipe():
-    left, right = gevent.socket.socketpair()
-    return Hole(left), Hole(right)
+    def put(self, value):
+        return put(self.socket(), value)
+
+    def get(self):
+        return get(self.socket())

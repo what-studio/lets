@@ -411,6 +411,14 @@ def reset_gevent():
     gevent.get_hub(default=True)  # Here is necessary.
 
 
+CHILD_KILLING_EXCEPTION = (gevent.GreenletExit, Exception)
+
+
+def _kill_child(socket, pid, exc):
+    put(socket, exc)
+    os.kill(pid, signal.SIGHUP)
+
+
 class Processlet(gevent.Greenlet):
 
     pid = None
@@ -451,12 +459,15 @@ class Processlet(gevent.Greenlet):
 
     def _parent(self, socket, pid):
         """The body of a parent process."""
-        loop = gevent.get_hub().loop
         child_ready = gevent.spawn(socket.recv, 1)
+        # Wait for the child ready.
         try:
-            # Wait for the child ready.
             child_ready.join()
-            # Wait for the child to exit.
+        except CHILD_KILLING_EXCEPTION as exc:
+            _kill_child(socket, pid, exc)
+        # Wait for the child to exit.
+        loop = gevent.get_hub().loop
+        try:
             while True:
                 # NOTE: If we don't start a new watcher, the below
                 # :meth:`AsyncResult.get` will be failed with :exc:`LoopExit`.
@@ -468,11 +479,10 @@ class Processlet(gevent.Greenlet):
                 except ProcessExit:
                     # Child has been exited.
                     raise
-                except (gevent.GreenletExit, Exception) as exc:
+                except CHILD_KILLING_EXCEPTION as exc:
                     # This processlet has been killed by another greenlet.  The
                     # received exception should be relayed to the child.
-                    put(socket, exc)
-                    os.kill(pid, signal.SIGHUP)
+                    _kill_child(socket, pid, exc)
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:

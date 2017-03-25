@@ -451,12 +451,13 @@ class Processlet(gevent.Greenlet):
                 try:
                     self._result.get()
                 except ProcessExit:
+                    # Child has been exited.
                     raise
                 except (gevent.GreenletExit, Exception) as exc:
+                    # This processlet has been killed by another greenlet.  The
+                    # received exception should be relayed to the child.
                     send(sock, exc)
                     os.kill(pid, signal.SIGHUP)
-                else:
-                    break
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:

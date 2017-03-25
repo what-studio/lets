@@ -61,6 +61,7 @@ import gevent.queue
 import gevent.select
 import gevent.signal
 import gevent.socket
+from gevent.socket import fromfd
 
 from lets.objectpool import ObjectPool
 from lets.quietlet import Quietlet
@@ -80,36 +81,36 @@ class ProcessExit(Exception):
         super(ProcessExit, self).__init__(code)
 
 
-def call_and_put(function, args, kwargs, pipe):
-    """Calls the function and sends result to the pipe."""
-    def pipe_put(value):
-        try:
-            pipe.put(value)
-        except OSError:
-            pass
-    try:
-        value = function(*args, **kwargs)
-    except gevent.GreenletExit as exc:
-        pipe_put((True, exc))
-    except SystemExit as exc:
-        exc_info = sys.exc_info()
-        pipe_put((False, exc))
-        raise exc_info[0], exc_info[1], exc_info[2]
-    except BaseException as exc:
-        pipe_put((False, exc))
-        raise SystemExit(1)
-    else:
-        pipe_put((True, value))
-    raise SystemExit(0)
+# def call_and_put(function, args, kwargs, hole):
+#     """Calls the function and sends result to the hole."""
+#     def hole_put(value):
+#         try:
+#             put(hole.socket, value)
+#         except OSError:
+#             pass
+#     try:
+#         value = function(*args, **kwargs)
+#     except gevent.GreenletExit as exc:
+#         hole_put((True, exc))
+#     except SystemExit as exc:
+#         exc_info = sys.exc_info()
+#         hole_put((False, exc))
+#         raise exc_info[0], exc_info[1], exc_info[2]
+#     except BaseException as exc:
+#         hole_put((False, exc))
+#         raise SystemExit(1)
+#     else:
+#         hole_put((True, value))
+#     # raise SystemExit(0)
 
 
-def get_and_kill(pipe, greenlet):
-    """Kills the greenlet if the parent sends an exception."""
-    try:
-        exc = pipe.get()
-    except EOFError as exc:
-        pass
-    greenlet.kill(exc, block=False)
+# def get_and_kill(hole, greenlet):
+#     """Kills the greenlet if the parent sends an exception."""
+#     try:
+#         exc = get(hole.socket)
+#     except EOFError as exc:
+#         pass
+#     greenlet.kill(exc, block=False)
 
 
 # class Processlet(gevent.Greenlet):
@@ -251,7 +252,7 @@ class ProcessPool(gevent.pool.Pool):
         super(ProcessPool, self).kill(exception, block, timeout)
 
     def greenlet_class(self, function, *args, **kwargs):
-        """The fake greenlet class.  It wraps the function with
+        """A fake greenlet class which wraps the given function call with
         :meth:`_run_customer`.
         """
         return gevent.Greenlet(self._run_customer, function, *args, **kwargs)
@@ -259,35 +260,53 @@ class ProcessPool(gevent.pool.Pool):
     def _run_customer(self, function, *args, **kwargs):
         """Sends a call to an available worker and receives result."""
         worker = self._worker_pool.get()
-        worker.pipe.put((function, args, kwargs))
+        socket = worker.hole.socket()
         try:
-            successful, value = worker.pipe.get()
+            # Request the function call.
+            put(socket, (function, args, kwargs))
+            # Receive the result.
+            ok, rv = get(socket)
         finally:
             self._worker_pool.release(worker)
-        if successful:
-            return value
+        if ok:
+            return rv
         else:
-            raise value
+            raise rv
 
-    def _run_worker(self, pipe):
+    def _run_worker(self, hole):
         """The main loop of worker."""
-        while True:
+        socket = hole.socket()
+        def _put(value):
             try:
-                function, args, kwargs = pipe.get()
+                put(socket, value)
+            except OSError:
+                pass
+        while True:
+            # Receive a function call request from customers.
+            try:
+                function, args, kwargs = get(socket)
             except EOFError:
                 break
+            # Call the function and let the customer know.
             try:
-                call_and_put(function, args, kwargs, pipe)
-            except SystemExit:
-                pass
+                value = function(*args, **kwargs)
+            except gevent.GreenletExit as exc:
+                _put((True, exc))
+            except SystemExit as exc:
+                exc_info = sys.exc_info()
+                _put((False, exc))
+                raise exc_info[0], exc_info[1], exc_info[2]
+            except BaseException as exc:
+                _put((False, exc))
+                raise SystemExit(1)
+            else:
+                _put((True, value))
 
     def _spawn_worker(self):
         """Spanws a new worker."""
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            p_pipe, c_pipe = gipc.pipe(duplex=True)
-        worker = Processlet.spawn(self._run_worker, c_pipe)
-        worker.pipe = p_pipe
+        p, c = pipe()
+        worker = Processlet.spawn(self._run_worker, c)
+        worker.hole = p
         worker.rawlink(self._discard_worker)
         return worker
 
@@ -348,30 +367,26 @@ HEADER_SPEC = '=I'
 HEADER_SIZE = struct.calcsize(HEADER_SPEC)
 
 
-def send(sock, value):
+def put(socket, value):
     """Sends a Python value through the socket."""
     data = pickle.dumps(value)
-    sock.sendall(struct.pack(HEADER_SPEC, len(data)))
-    sock.sendall(data)
+    socket.sendall(struct.pack(HEADER_SPEC, len(data)))
+    socket.sendall(data)
 
 
-def recv(sock):
+def get(socket):
     """Receives a Python value through the socket."""
-    print 1, sock, HEADER_SIZE
-    size_data = recv_enough(sock, HEADER_SIZE)
-    print 2
+    size_data = recv_enough(socket, HEADER_SIZE)
     size, = struct.unpack(HEADER_SPEC, size_data)
-    print 3
-    data = recv_enough(sock, size)
-    print 4
+    data = recv_enough(socket, size)
     return pickle.loads(data)
 
 
-def recv_enough(sock, size):
+def recv_enough(socket, size):
     buf = io.BytesIO()
     more = size
     while more:
-        chunk = sock.recv(more)
+        chunk = socket.recv(more)
         if not chunk:
             raise EOFError
         buf.write(chunk)
@@ -434,10 +449,10 @@ class Processlet(gevent.Greenlet):
         self._result.set_exception(exc)
         self.throw(exc)
 
-    def _parent(self, sock, pid):
+    def _parent(self, socket, pid):
         """The body of a parent process."""
         loop = gevent.get_hub().loop
-        child_ready = gevent.spawn(sock.recv, 1)
+        child_ready = gevent.spawn(socket.recv, 1)
         try:
             # Wait for the child ready.
             child_ready.join()
@@ -456,33 +471,33 @@ class Processlet(gevent.Greenlet):
                 except (gevent.GreenletExit, Exception) as exc:
                     # This processlet has been killed by another greenlet.  The
                     # received exception should be relayed to the child.
-                    send(sock, exc)
+                    put(socket, exc)
                     os.kill(pid, signal.SIGHUP)
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:
             code = exc.code
         # Collect the function result.
-        ready, __, __ = gevent.select.select([sock], [], [], 1)
+        ready, __, __ = gevent.select.select([socket], [], [], 1)
         if ready:
-            ok, rv = recv(sock)
+            ok, rv = get(socket)
             if not ok and isinstance(rv, SystemExit):
                 rv = ProcessExit(rv.code)
         else:
             ok, rv = False, ProcessExit(code)
         return ok, rv, code
 
-    def _child(self, sock, run, args, kwargs):
+    def _child(self, socket, run, args, kwargs):
         """The body of a child process."""
         # Reset environments.
         reset_signal_handlers()
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
-        sock = gevent.socket.fromfd(sock.fileno(), sock.family, sock.proto)
+        socket = fromfd(socket.fileno(), socket.family, socket.proto)
         # Catch exception before the greenlet is ready.
         early_exc = gevent.event.AsyncResult()
         signal.signal(signal.SIGHUP,
-                      lambda g, f: self._child_killed_early(sock, early_exc))
+                      lambda g, f: self._child_killed_early(socket, early_exc))
         # Spawn and ensure to be started the greenlet.
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         greenlet.join(0)
@@ -493,33 +508,35 @@ class Processlet(gevent.Greenlet):
             greenlet.kill(early_exc.exception, block=False)
         else:
             signal.signal(signal.SIGHUP,
-                          lambda g, f: self._child_killed(sock, greenlet, f))
+                          lambda g, f: self._child_killed(socket, greenlet, f))
         try:
             # Notify starting.
-            sock.send(b'\x00')
+            socket.send(b'\x01')
             # Run the function.
             rv = greenlet.get()
         except SystemExit as rv:
             ok, code = False, rv.code
         except BaseException as rv:
+            import traceback
+            traceback.print_exc()
             ok, code = False, 1
         else:
             ok, code = True, 0
         # Notify the result.
-        send(sock, (ok, rv))
+        put(socket, (ok, rv))
         os._exit(code)
 
     @staticmethod
-    def _child_killed_early(sock, result):
-        exc = recv(sock)
+    def _child_killed_early(socket, result):
+        exc = get(socket)
         result.set_exception(exc)
 
     @staticmethod
-    def _child_killed(sock, greenlet, frame):
+    def _child_killed(socket, greenlet, frame):
         """A signal handler on a child process to detect killing exceptions
         from the parent process.
         """
-        exc = recv(sock)
+        exc = get(socket)
         if greenlet.gr_frame is frame:
             # The greenlet is busy.
             raise exc
@@ -527,21 +544,29 @@ class Processlet(gevent.Greenlet):
 
 
 class Hole(object):
+    """A socket holder to pass a socket into a :class:`Processlet` safely."""
+
+    __slots__ = ('fileno', 'family', 'proto', '_socket', '_hub_id')
 
     def __init__(self, socket):
-        self.socket = socket
+        self.fileno = socket.fileno()
+        self.family = socket.family
+        self.proto = socket.proto
+        self._socket = socket
+        self._hub_id = id(gevent.get_hub())
 
-    def put(self, value):
-        send(self.socket, value)
-
-    def get(self):
-        return recv(self.socket)
+    def socket(self):
+        hub_id = id(gevent.get_hub())
+        if hub_id != getattr(self, '_hub_id', -1):
+            self._hub_id = hub_id
+            self._socket = fromfd(self.fileno, self.family, self.proto)
+        return self._socket
 
     def __getstate__(self):
-        return (self.socket.fileno(), self.socket.family, self.socket.proto)
+        return (self.fileno, self.family, self.proto)
 
-    def __setstate__(self, (fd, family, proto)):
-        self.socket = gevent.socket.fromfd(fd, family, proto)
+    def __setstate__(self, (fileno, family, proto)):
+        self.fileno, self.family, self.proto = fileno, family, proto
 
 
 def pipe():

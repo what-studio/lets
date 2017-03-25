@@ -348,6 +348,25 @@ HEADER_SPEC = '=I'
 HEADER_SIZE = struct.calcsize(HEADER_SPEC)
 
 
+def send(sock, value):
+    """Sends a Python value through the socket."""
+    data = pickle.dumps(value)
+    sock.sendall(struct.pack(HEADER_SPEC, len(data)))
+    sock.sendall(data)
+
+
+def recv(sock):
+    """Receives a Python value through the socket."""
+    print 1, sock, HEADER_SIZE
+    size_data = recv_enough(sock, HEADER_SIZE)
+    print 2
+    size, = struct.unpack(HEADER_SPEC, size_data)
+    print 3
+    data = recv_enough(sock, size)
+    print 4
+    return pickle.loads(data)
+
+
 def recv_enough(sock, size):
     buf = io.BytesIO()
     more = size
@@ -417,10 +436,12 @@ class Processlet(gevent.Greenlet):
 
     def _parent(self, sock, pid):
         """The body of a parent process."""
+        loop = gevent.get_hub().loop
         child_ready = gevent.spawn(sock.recv, 1)
         try:
-            # Wait for the child exits.
-            loop = gevent.get_hub().loop
+            # Wait for the child ready.
+            child_ready.join()
+            # Wait for the child to exit.
             while True:
                 # NOTE: If we don't start a new watcher, the below
                 # :meth:`AsyncResult.get` will be failed with :exc:`LoopExit`.
@@ -432,8 +453,7 @@ class Processlet(gevent.Greenlet):
                 except ProcessExit:
                     raise
                 except (gevent.GreenletExit, Exception) as exc:
-                    child_ready.join()
-                    self._send(sock, exc)
+                    send(sock, exc)
                     os.kill(pid, signal.SIGHUP)
                 else:
                     break
@@ -444,7 +464,7 @@ class Processlet(gevent.Greenlet):
         # Collect the function result.
         ready, __, __ = gevent.select.select([sock], [], [], 1)
         if ready:
-            ok, rv = self._recv(sock)
+            ok, rv = recv(sock)
             if not ok and isinstance(rv, SystemExit):
                 rv = ProcessExit(rv.code)
         else:
@@ -485,39 +505,24 @@ class Processlet(gevent.Greenlet):
         else:
             ok, code = True, 0
         # Notify the result.
-        self._send(sock, (ok, rv))
+        send(sock, (ok, rv))
         os._exit(code)
 
-    @classmethod
-    def _child_killed_early(cls, sock, result):
-        exc = cls._recv(sock)
+    @staticmethod
+    def _child_killed_early(sock, result):
+        exc = recv(sock)
         result.set_exception(exc)
 
-    @classmethod
-    def _child_killed(cls, sock, greenlet, frame):
+    @staticmethod
+    def _child_killed(sock, greenlet, frame):
         """A signal handler on a child process to detect killing exceptions
         from the parent process.
         """
-        exc = cls._recv(sock)
+        exc = recv(sock)
         if greenlet.gr_frame is frame:
             # The greenlet is busy.
             raise exc
         greenlet.kill(exc, block=False)
-
-    @staticmethod
-    def _send(sock, value):
-        """Sends a Python value through the socket."""
-        data = pickle.dumps(value)
-        sock.sendall(struct.pack(HEADER_SPEC, len(data)))
-        sock.sendall(data)
-
-    @staticmethod
-    def _recv(sock):
-        """Receives a Python value through the socket."""
-        size_data = recv_enough(sock, HEADER_SIZE)
-        size, = struct.unpack(HEADER_SPEC, size_data)
-        data = recv_enough(sock, size)
-        return pickle.loads(data)
 
 
 class Hole(object):
@@ -526,14 +531,10 @@ class Hole(object):
         self.socket = socket
 
     def put(self, value):
-        data = pickle.dumps(value)
-        self.socket.send(struct.pack(HEADER_SPEC, len(data)) + data)
+        send(self.socket, value)
 
     def get(self):
-        size_data = recv_enough(self.socket, HEADER_SIZE)
-        size, = struct.unpack(HEADER_SPEC, size_data)
-        data = recv_enough(self.socket, size)
-        return pickle.loads(data)
+        return recv(self.socket)
 
     def __getstate__(self):
         return (self.socket.fileno(), self.socket.family, self.socket.proto)

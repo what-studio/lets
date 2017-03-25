@@ -406,20 +406,7 @@ def reset_gevent():
     gevent.get_hub(default=True)  # Here is necessary.
 
 
-CHILD_KILLING_EXCEPTION = (gevent.GreenletExit, Exception)
 NOOP_CALLBACK = lambda *x: None
-
-
-def _kill_child(socket, pid, exc):
-    put(socket, exc)
-    try:
-        os.kill(pid, signal.SIGHUP)
-    except OSError:
-        return False
-    else:
-        return True
-    #     # Maybe child process has already been exited.
-    #     pass
 
 
 class Processlet(gevent.Greenlet):
@@ -465,20 +452,6 @@ class Processlet(gevent.Greenlet):
         # NOTE: This function MUST NOT RAISE an exception.
         # Return `(False, exc_info, code)` instead of raising an exception.
         child_ready = gevent.spawn(socket.recv, 1)
-        # Wait for the child ready.
-        try:
-            child_ready.join()
-        except CHILD_KILLING_EXCEPTION as exc:
-            if not _kill_child(socket, pid, exc):
-                loop = gevent.get_hub().loop
-                new_watcher = loop.child(pid, False)
-                new_watcher.start(NOOP_CALLBACK)
-                try:
-                    self._result.get()
-                except ProcessExit as exc:
-                    code = exc.code
-                return False, exc, code
-
         # Wait for the child to exit.
         loop = gevent.get_hub().loop
         try:
@@ -493,10 +466,23 @@ class Processlet(gevent.Greenlet):
                 except ProcessExit:
                     # Child has been exited.
                     raise
-                except CHILD_KILLING_EXCEPTION as exc:
+                except (gevent.GreenletExit, Exception) as exc:
                     # This processlet has been killed by another greenlet.  The
                     # received exception should be relayed to the child.
-                    _kill_child(socket, pid, exc)
+                    if not child_ready.ready():
+                        # Before relaying the exception, wait for the child
+                        # ready.
+                        while True:
+                            try:
+                                child_ready.join()
+                            except:
+                                # Ignore more killing exceptions.
+                                pass
+                            else:
+                                break
+                    # Relay the exception to the child.
+                    put(socket, exc)
+                    os.kill(pid, signal.SIGHUP)
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:
@@ -504,6 +490,7 @@ class Processlet(gevent.Greenlet):
         # Collect the function result.
         ready, __, __ = gevent.select.select([socket], [], [], 1)
         if ready:
+            child_ready.join()
             ok, rv = get(socket)
             if not ok and isinstance(rv, SystemExit):
                 rv = ProcessExit(rv.code)

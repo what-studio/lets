@@ -500,26 +500,23 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, socket, run, args, kwargs):
         """The body of a child process."""
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
         # Reset environments.
         reset_signal_handlers()
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
-        # Catch exception before the greenlet is ready.
-        early_exc = gevent.event.AsyncResult()
-        signal.signal(signal.SIGHUP,
-                      lambda g, f: self._child_killed_early(socket, early_exc))
         # Spawn and ensure to be started the greenlet.
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         greenlet.join(0)
         # Kill the greenlet if there's early exception.  Otherwise, register
         # the formal exception catcher.
-        if early_exc.ready():
-            signal.signal(signal.SIGHUP, signal.SIG_IGN)
-            greenlet.kill(early_exc.exception, block=False)
+        ready, __, __ = gevent.select.select([socket], [], [], 0)
+        if ready:
+            greenlet.kill(get(socket), block=False)
         else:
-            signal.signal(signal.SIGHUP,
-                          lambda g, f: self._child_killed(socket, greenlet, f))
+            killed = lambda g, f: self._child_killed(socket, greenlet, f)
+            signal.signal(signal.SIGHUP, killed)
         try:
             # Notify starting.
             socket.send(b'\x01')
@@ -536,11 +533,6 @@ class Processlet(gevent.Greenlet):
         # Notify the result.
         put(socket, (ok, rv))
         os._exit(code)
-
-    @staticmethod
-    def _child_killed_early(socket, result):
-        exc = get(socket)
-        result.set_exception(exc)
 
     @staticmethod
     def _child_killed(socket, greenlet, frame):

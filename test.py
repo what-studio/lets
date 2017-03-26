@@ -77,11 +77,11 @@ class ExpectedError(BaseException):
     pass
 
 
-def notify_entry(pipe, f, *args, **kwargs):
+def notify_entry(hole, f, *args, **kwargs):
     g = lets.Quietlet.spawn(f, *args, **kwargs)
     g.join(0)
     try:
-        pipe.put(True)
+        hole.put(True)
         return g.get()
     except BaseException as exc:
         g.kill(exc)

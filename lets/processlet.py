@@ -525,8 +525,6 @@ class Processlet(gevent.Greenlet):
         except SystemExit as rv:
             ok, code = False, rv.code
         except BaseException as rv:
-            import traceback
-            traceback.print_exc()
             ok, code = False, 1
         else:
             ok, code = True, 0

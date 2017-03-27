@@ -110,9 +110,11 @@ def recv_enough(socket, size):
     return buf.getvalue()
 
 
-SIGNAL_NUMBERS = [getattr(signal, name) for name in dir(signal) if
-                  name.startswith('SIG') and not name.startswith('SIG_') and
-                  name not in ['SIGSTOP', 'SIGKILL', 'SIGPIPE']]
+SIGNAL_NUMBERS = set([
+    getattr(signal, name) for name in dir(signal) if
+    name.startswith('SIG') and not name.startswith('SIG_') and
+    name not in ['SIGSTOP', 'SIGKILL', 'SIGPIPE']
+])
 
 
 def reset_signal_handlers(signos=SIGNAL_NUMBERS):
@@ -226,9 +228,10 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, socket, run, args, kwargs):
         """The body of a child process."""
+        # Protect against SIGHUP from the parent.
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
         # Reset environments.
-        reset_signal_handlers()
+        reset_signal_handlers(SIGNAL_NUMBERS - set([signal.SIGHUP]))
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         socket = fromfd(socket.fileno(), socket.family, socket.proto)

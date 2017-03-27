@@ -184,9 +184,10 @@ class Processlet(gevent.Greenlet):
         """The body of a parent process."""
         # NOTE: This function MUST NOT RAISE an exception.
         # Return `(False, exc_info, code)` instead of raising an exception.
+        child_ready = gevent.spawn(socket.recv, 1)
+        # Wait for the child to exit.
         loop = gevent.get_hub().loop
         try:
-            # Wait for the child to exit.
             while True:
                 # NOTE: If we don't start a new watcher, the below
                 # :meth:`AsyncResult.get` will be failed with :exc:`LoopExit`.
@@ -196,10 +197,23 @@ class Processlet(gevent.Greenlet):
                 try:
                     self._result.get()
                 except ProcessExit:
+                    # Child has been exited.
                     raise
                 except (gevent.GreenletExit, Exception) as exc:
                     # This processlet has been killed by another greenlet.  The
                     # received exception should be relayed to the child.
+                    if not child_ready.ready():
+                        # Before relaying the exception, wait for the child
+                        # ready.
+                        while True:
+                            try:
+                                child_ready.join()
+                            except:
+                                # Ignore more killing exceptions.
+                                pass
+                            else:
+                                break
+                    # Relay the exception to the child.
                     put(socket, exc)
                     self.send(signal.SIGHUP)
                 finally:
@@ -207,7 +221,10 @@ class Processlet(gevent.Greenlet):
         except ProcessExit as exc:
             code = exc.code
         # Collect the function result.
+        # if is_socket_readable(socket, 0):
+        #     child_ready.join()
         if is_socket_readable(socket, 0):
+            child_ready.join()
             ok, rv = get(socket)
             if not ok and isinstance(rv, SystemExit):
                 rv = ProcessExit(rv.code)
@@ -235,6 +252,8 @@ class Processlet(gevent.Greenlet):
             killed = lambda g, f: self._child_killed(socket, greenlet, f)
             signal.signal(signal.SIGHUP, killed)
         try:
+            # Notify starting.
+            socket.send(b'\x01')
             # Run the function.
             rv = greenlet.get()
         except SystemExit as rv:

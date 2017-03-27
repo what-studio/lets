@@ -549,10 +549,42 @@ class Processlet(gevent.Greenlet):
         greenlet.kill(exc, block=False)
 
 
-def pipe():
-    """Opens 2 :class:`Hole`s which are pairing with each other."""
-    left, right = gevent.socket.socketpair()
-    return Hole(left), Hole(right)
+class pipe(object):
+    """Opens 2 :class:`Hole`s that pairs with each other.
+
+    You can assign the holes into separate variables like tuple assigning:
+
+       left, right = pipe()
+       do_something(left, right)
+       left.close()
+       right.close()
+
+    Or open and close as a context manager:
+
+       with pipe() as (left, right):
+           do_something(left, right)
+
+    """
+
+    __slots__ = ('left', 'right')
+
+    def __init__(self):
+        left, right = gevent.socket.socketpair()
+        self.left, self.right = Hole(left), Hole(right)
+
+    def close(self):
+        self.left.close()
+        self.right.close()
+
+    def __iter__(self):
+        yield self.left
+        yield self.right
+
+    def __enter__(self):
+        return (self.left, self.right)
+
+    def __exit__(self, *exc_info):
+        self.close()
 
 
 class Hole(object):
@@ -586,3 +618,6 @@ class Hole(object):
 
     def get(self):
         return get(self.socket())
+
+    def close(self):
+        self.socket().close()

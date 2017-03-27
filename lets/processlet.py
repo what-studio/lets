@@ -419,17 +419,22 @@ class Processlet(gevent.Greenlet):
         super(Processlet, self).__init__(None, *args, **kwargs)
         self._result = gevent.event.AsyncResult()
 
+    def send(self, signo):
+        os.kill(self.pid, signo)
+
     @property
     def exit_code(self):
         return self.code
 
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
-        self.pid = pid = gevent.os.fork(callback=self._child_exited)
+        pid = gevent.os.fork(callback=self._child_exited)
         if pid == 0:
+            self.pid = os.getpid()
             self._child(c, run, args, kwargs)
             return
-        ok, rv, self.code = self._parent(p, pid)
+        self.pid = pid
+        ok, rv, self.code = self._parent(p)
         if ok:
             return rv
         else:
@@ -447,7 +452,7 @@ class Processlet(gevent.Greenlet):
         self._result.set_exception(exc)
         self.throw(exc)
 
-    def _parent(self, socket, pid):
+    def _parent(self, socket):
         """The body of a parent process."""
         # NOTE: This function MUST NOT RAISE an exception.
         # Return `(False, exc_info, code)` instead of raising an exception.
@@ -459,7 +464,7 @@ class Processlet(gevent.Greenlet):
                 # NOTE: If we don't start a new watcher, the below
                 # :meth:`AsyncResult.get` will be failed with :exc:`LoopExit`.
                 # See this issue: https://github.com/gevent/gevent/issues/878
-                new_watcher = loop.child(pid, False)
+                new_watcher = loop.child(self.pid, False)
                 new_watcher.start(NOOP_CALLBACK)
                 try:
                     self._result.get()
@@ -482,7 +487,7 @@ class Processlet(gevent.Greenlet):
                                 break
                     # Relay the exception to the child.
                     put(socket, exc)
-                    os.kill(pid, signal.SIGHUP)
+                    self.send(signal.SIGHUP)
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:

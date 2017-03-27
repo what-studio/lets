@@ -77,6 +77,14 @@ class ExpectedError(BaseException):
     pass
 
 
+class Error1(Exception):
+    pass
+
+
+class Error2(Exception):
+    pass
+
+
 def notify_entry(hole, f, *args, **kwargs):
     g = lets.Quietlet.spawn(f, *args, **kwargs)
     g.join(0)
@@ -488,19 +496,19 @@ def test_greenlet_exit(group):
 def test_task_kills_group(proc, group):
     def f1():
         gevent.sleep(0.1)
-        raise RuntimeError
+        raise Error1
     def f2():
         try:
-            gevent.sleep(10)
-        except RuntimeError:
-            raise Killed
+            gevent.sleep(100)
+        except Error1:
+            raise Error2
     def f3():
-        gevent.sleep(10)
+        gevent.sleep(100)
     g1 = group.spawn(f1)
     g1.link_exception(lambda g: group.kill(g.exception))
     g2 = group.spawn(f2)
     g3 = group.spawn(f3)
-    with pytest.raises((RuntimeError, Killed)):
+    with pytest.raises((Error1, Error2)):
         group.join(raise_error=True)
     assert len(proc.children()) == 0
     assert not group.greenlets
@@ -510,9 +518,9 @@ def test_task_kills_group(proc, group):
     assert not g1.successful()
     assert not g2.successful()
     assert not g3.successful()
-    assert isinstance(g1.exception, RuntimeError)
-    assert isinstance(g2.exception, Killed)
-    assert isinstance(g3.exception, RuntimeError)
+    assert isinstance(g1.exception, Error1)
+    assert isinstance(g2.exception, Error2)
+    assert isinstance(g3.exception, Error1)
 
 
 def _test_quiet_context(capsys):

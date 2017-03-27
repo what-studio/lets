@@ -213,8 +213,8 @@ def test_kill_processlet_before_starting(proc):
     assert len(proc.children()) == 0
 
 
-def test_kill_processlet_after_starting(proc):
-    p, c = lets.processlet.pipe()
+def test_kill_processlet_after_starting(proc, pipe):
+    p, c = pipe
     job = lets.Processlet.spawn(notify_entry, c, raise_when_killed)
     assert len(proc.children()) == 0
     assert p.get() is True
@@ -564,7 +564,7 @@ def test_greenlet_system_exit():
         gevent.spawn(gevent.sleep, 0.1).join()
 
 
-def test_processlet_system_exit():
+def test_processlet_system_exit(pipe):
     job = lets.Processlet.spawn(kill_itself)
     gevent.spawn(gevent.sleep, 0.1).join()
     with pytest.raises(lets.ProcessExit) as e:
@@ -579,7 +579,7 @@ def test_processlet_system_exit():
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM
-    p, c = lets.processlet.pipe()
+    p, c = pipe
     job = lets.Processlet.spawn(notify_entry, c, raise_when_killed,
                                 SystemExit(42))
     p.get()
@@ -598,8 +598,8 @@ def _test_processlet_exits_by_sigint():
     assert isinstance(job.get(), gevent.GreenletExit)
 
 
-def test_processlet_pause_and_resume():
-    p, c = lets.processlet.pipe()
+def test_processlet_pause_and_resume(pipe):
+    p, c = pipe
     job = lets.Processlet.spawn(notify_entry, c, lambda: gevent.sleep(2) or 42)
     p.get()
     os.kill(job.pid, signal.SIGSTOP)

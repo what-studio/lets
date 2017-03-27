@@ -8,6 +8,10 @@ import pytest
 import lets
 
 
+def pytest_runtest_teardown(item):
+    assert not proc().children()
+
+
 group_names = ['greenlet_group', 'process_group']
 
 
@@ -26,5 +30,7 @@ def proc():
     return psutil.Process(os.getpid())
 
 
-def pytest_runtest_teardown(item):
-    assert not proc().children()
+@pytest.fixture
+def pipe():
+    with lets.pipe() as (left, right):
+        yield (left, right)

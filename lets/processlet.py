@@ -50,8 +50,6 @@ except ImportError:
     import pickle
 import signal
 import struct
-import sys
-import warnings
 
 import gevent
 import gevent.event
@@ -79,131 +77,6 @@ class ProcessExit(Exception):
     def __init__(self, code):
         self.code = code
         super(ProcessExit, self).__init__(code)
-
-
-class ProcessPool(gevent.pool.Pool):
-    """Recyclable worker :class:`Processlet` pool.  It should be finalized with
-    :meth:`kill` to close all child processes.
-    """
-
-    def __init__(self, size=None):
-        super(ProcessPool, self).__init__(size)
-        self._worker_pool = ObjectPool(size, self._spawn_worker)
-
-    def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
-        """Kills all workers and customer greenlets."""
-        workers = self._worker_pool.objects
-        for worker in workers:
-            worker.kill(exception, block=False)
-        if block:
-            gevent.joinall(workers, timeout=timeout)
-        super(ProcessPool, self).kill(exception, block, timeout)
-
-    def greenlet_class(self, function, *args, **kwargs):
-        """A fake greenlet class which wraps the given function call with
-        :meth:`_run_customer`.
-        """
-        return gevent.Greenlet(self._run_customer, function, *args, **kwargs)
-
-    def _run_customer(self, function, *args, **kwargs):
-        """Sends a call to an available worker and receives result."""
-        worker = self._worker_pool.get()
-        socket = worker.hole.socket()
-        try:
-            # Request the function call.
-            put(socket, (function, args, kwargs))
-            # Receive the result.
-            ok, rv = get(socket)
-        finally:
-            self._worker_pool.release(worker)
-        if ok:
-            return rv
-        else:
-            raise rv
-
-    def _run_worker(self, hole):
-        """The main loop of worker."""
-        socket = hole.socket()
-        def _put(value):
-            try:
-                put(socket, value)
-            except OSError:
-                pass
-        while True:
-            # Receive a function call request from customers.
-            try:
-                function, args, kwargs = get(socket)
-            except EOFError:
-                break
-            # Call the function and let the customer know.
-            try:
-                value = function(*args, **kwargs)
-            except gevent.GreenletExit as exc:
-                _put((True, exc))
-            except BaseException as exc:
-                _put((False, exc))
-            else:
-                _put((True, value))
-
-    def _spawn_worker(self):
-        """Spanws a new worker."""
-        p, c = pipe()
-        worker = Processlet.spawn(self._run_worker, c)
-        worker.hole = p
-        worker.rawlink(self._discard_worker)
-        return worker
-
-    def _discard_worker(self, worker):
-        """Unregisters the worker.  Used for rawlink."""
-        worker.unlink(self._discard_worker)
-        self._worker_pool.discard(worker)
-
-
-class KeepDict(BaseException):
-
-    pass
-
-
-@contextmanager
-def _patch(self):
-    pid = os.getpid()
-    local_pid = object.__getattribute__(self, '_local__pid')
-    if local_pid == pid:
-        # Don't work as thread-local on the same process.
-        yield
-    else:
-        object.__setattr__(self, '_local__pid', pid)
-        try:
-            with gevent.local._patch(self):
-                yield
-                # Don't recover the previous local __dict__ by _patch() to
-                # keep the current one.
-                raise KeepDict
-        except KeepDict:
-            pass
-
-
-class ProcessLocal(gevent.local.local):
-    """Process-local object."""
-
-    __slots__ = ('_local__impl', '_local__pid')
-
-    def __new__(cls, *args, **kwargs):
-        self = super(ProcessLocal, cls).__new__(cls, *args, **kwargs)
-        object.__setattr__(self, '_local__pid', os.getpid())
-        return self
-
-    def __getattribute__(self, attr):
-        with _patch(self):
-            return object.__getattribute__(self, attr)
-
-    def __setattr__(self, attr, value):
-        with _patch(self):
-            return object.__setattr__(self, attr, value)
-
-    def __delattr__(self, attr):
-        with _patch(self):
-            return object.__delattr__(self, attr)
 
 
 HEADER_SPEC = '=I'
@@ -469,3 +342,128 @@ class Hole(object):
 
     def close(self):
         self.socket().close()
+
+
+class ProcessPool(gevent.pool.Pool):
+    """Recyclable worker :class:`Processlet` pool.  It should be finalized with
+    :meth:`kill` to close all child processes.
+    """
+
+    def __init__(self, size=None):
+        super(ProcessPool, self).__init__(size)
+        self._worker_pool = ObjectPool(size, self._spawn_worker)
+
+    def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
+        """Kills all workers and customer greenlets."""
+        workers = self._worker_pool.objects
+        for worker in workers:
+            worker.kill(exception, block=False)
+        if block:
+            gevent.joinall(workers, timeout=timeout)
+        super(ProcessPool, self).kill(exception, block, timeout)
+
+    def greenlet_class(self, function, *args, **kwargs):
+        """A fake greenlet class which wraps the given function call with
+        :meth:`_run_customer`.
+        """
+        return gevent.Greenlet(self._run_customer, function, *args, **kwargs)
+
+    def _run_customer(self, function, *args, **kwargs):
+        """Sends a call to an available worker and receives result."""
+        worker = self._worker_pool.get()
+        socket = worker.hole.socket()
+        try:
+            # Request the function call.
+            put(socket, (function, args, kwargs))
+            # Receive the result.
+            ok, rv = get(socket)
+        finally:
+            self._worker_pool.release(worker)
+        if ok:
+            return rv
+        else:
+            raise rv
+
+    def _run_worker(self, hole):
+        """The main loop of worker."""
+        socket = hole.socket()
+        def _put(value):
+            try:
+                put(socket, value)
+            except OSError:
+                pass
+        while True:
+            # Receive a function call request from customers.
+            try:
+                function, args, kwargs = get(socket)
+            except EOFError:
+                break
+            # Call the function and let the customer know.
+            try:
+                value = function(*args, **kwargs)
+            except gevent.GreenletExit as exc:
+                _put((True, exc))
+            except BaseException as exc:
+                _put((False, exc))
+            else:
+                _put((True, value))
+
+    def _spawn_worker(self):
+        """Spanws a new worker."""
+        p, c = pipe()
+        worker = Processlet.spawn(self._run_worker, c)
+        worker.hole = p
+        worker.rawlink(self._discard_worker)
+        return worker
+
+    def _discard_worker(self, worker):
+        """Unregisters the worker.  Used for rawlink."""
+        worker.unlink(self._discard_worker)
+        self._worker_pool.discard(worker)
+
+
+class KeepDict(BaseException):
+
+    pass
+
+
+@contextmanager
+def _patch(self):
+    pid = os.getpid()
+    local_pid = object.__getattribute__(self, '_local__pid')
+    if local_pid == pid:
+        # Don't work as thread-local on the same process.
+        yield
+    else:
+        object.__setattr__(self, '_local__pid', pid)
+        try:
+            with gevent.local._patch(self):
+                yield
+                # Don't recover the previous local __dict__ by _patch() to
+                # keep the current one.
+                raise KeepDict
+        except KeepDict:
+            pass
+
+
+class ProcessLocal(gevent.local.local):
+    """Process-local object."""
+
+    __slots__ = ('_local__impl', '_local__pid')
+
+    def __new__(cls, *args, **kwargs):
+        self = super(ProcessLocal, cls).__new__(cls, *args, **kwargs)
+        object.__setattr__(self, '_local__pid', os.getpid())
+        return self
+
+    def __getattribute__(self, attr):
+        with _patch(self):
+            return object.__getattribute__(self, attr)
+
+    def __setattr__(self, attr, value):
+        with _patch(self):
+            return object.__setattr__(self, attr, value)
+
+    def __delattr__(self, attr):
+        with _patch(self):
+            return object.__delattr__(self, attr)

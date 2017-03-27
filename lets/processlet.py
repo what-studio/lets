@@ -129,6 +129,11 @@ def reset_gevent():
     gevent.get_hub(default=True)  # Here is necessary.
 
 
+def is_socket_readable(socket, timeout=None):
+    readable, __, __ = gevent.select.select([socket], [], [], timeout)
+    return bool(readable)
+
+
 NOOP_CALLBACK = lambda *x: None
 
 
@@ -216,8 +221,9 @@ class Processlet(gevent.Greenlet):
         except ProcessExit as exc:
             code = exc.code
         # Collect the function result.
-        ready, __, __ = gevent.select.select([socket], [], [], 1)
-        if ready:
+        # if is_socket_readable(socket, 0):
+        #     child_ready.join()
+        if is_socket_readable(socket, 0):
             child_ready.join()
             ok, rv = get(socket)
             if not ok and isinstance(rv, SystemExit):
@@ -240,8 +246,7 @@ class Processlet(gevent.Greenlet):
         greenlet.join(0)
         # Kill the greenlet if there's early exception.  Otherwise, register
         # the formal exception catcher.
-        ready, __, __ = gevent.select.select([socket], [], [], 0)
-        if ready:
+        if is_socket_readable(socket, 0):
             greenlet.kill(get(socket), block=False)
         else:
             killed = lambda g, f: self._child_killed(socket, greenlet, f)

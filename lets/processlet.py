@@ -202,17 +202,17 @@ class Processlet(gevent.Greenlet):
                 except (gevent.GreenletExit, Exception) as exc:
                     # This processlet has been killed by another greenlet.  The
                     # received exception should be relayed to the child.
-                    if not child_ready.ready():
-                        # Before relaying the exception, wait for the child
-                        # ready.
-                        while True:
-                            try:
-                                child_ready.join()
-                            except:
-                                # Ignore more killing exceptions.
-                                pass
-                            else:
-                                break
+                    # if not child_ready.ready():
+                    #     # Before relaying the exception, wait for the child
+                    #     # ready.
+                    #     while True:
+                    #         try:
+                    #             child_ready.join()
+                    #         except:
+                    #             # Ignore more killing exceptions.
+                    #             pass
+                    #         else:
+                    #             break
                     # Relay the exception to the child.
                     put(socket, exc)
                     self.send(signal.SIGHUP)

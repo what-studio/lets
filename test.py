@@ -249,7 +249,7 @@ def test_kill_processlet_after_join_another_processlet(proc):
     job1 = lets.Processlet.spawn(gevent.sleep, 1)
     job2 = lets.Processlet.spawn(gevent.sleep, 3)
     job1.join(0.1)
-    with gevent.Timeout(1, AssertionError('job2.kill() timed out')):
+    with gevent.Timeout(5, AssertionError('job2.kill() timed out')):
         job2.kill()
     assert job2.ready()
     job1.join()

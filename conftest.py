@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import signal
 
 from gevent.pool import Group
 import psutil
@@ -9,7 +10,10 @@ import lets
 
 
 def pytest_runtest_teardown(item):
-    assert not proc().children()
+    children = proc().children()
+    for p in children:
+        os.kill(p.pid, signal.SIGKILL)
+    assert not children
 
 
 group_names = ['greenlet_group', 'process_group']

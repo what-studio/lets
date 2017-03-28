@@ -224,7 +224,7 @@ class Processlet(gevent.Greenlet):
         # if is_socket_readable(socket, 0):
         #     child_ready.join()
         if is_socket_readable(socket, 0):
-            child_ready.join()
+            # child_ready.join()
             ok, rv = get(socket)
             if not ok and isinstance(rv, SystemExit):
                 rv = ProcessExit(rv.code)

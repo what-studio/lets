@@ -601,10 +601,9 @@ def test_processlet_system_exit(pipe):
     assert job.exit_code == 42
 
 
-def _test_processlet_exits_by_sigint():
+def test_processlet_exits_by_sigint():
     job = lets.Processlet.spawn(busy_waiting, 10)
-    job.join(0)
-    os.kill(job.pid, signal.SIGINT)
+    job.send(signal.SIGINT)
     job.join()
     assert isinstance(job.get(), gevent.GreenletExit)
 

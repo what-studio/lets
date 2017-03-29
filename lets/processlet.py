@@ -68,17 +68,6 @@ from lets.quietlet import Quietlet
 __all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal']
 
 
-class ProcessExit(Exception):
-    """Originally, :exc:`SystemExit` kills all independent gevent waitings.
-    To prevent killing the current process, :class:`Processlet` replaces
-    :exc:`SystemExit` from child process with this exception.
-    """
-
-    def __init__(self, code):
-        self.code = code
-        super(ProcessExit, self).__init__(code)
-
-
 HEADER_SPEC = '=I'
 HEADER_SIZE = struct.calcsize(HEADER_SPEC)
 
@@ -117,9 +106,9 @@ SIGNAL_NUMBERS = set([
 ])
 
 
-def reset_signal_handlers(signos=SIGNAL_NUMBERS):
+def reset_signal_handlers(signos=SIGNAL_NUMBERS, exclude=()):
     for signo in signos:
-        if signo < signal.NSIG:
+        if signo < signal.NSIG and signo not in exclude:
             signal.signal(signo, signal.SIG_DFL)
 
 
@@ -132,6 +121,23 @@ def reset_gevent():
 def is_socket_readable(socket, timeout=None):
     readable, __, __ = gevent.select.select([socket], [], [], timeout)
     return bool(readable)
+
+
+class ProcessExit(Exception):
+    """Originally, :exc:`SystemExit` kills all independent gevent waitings.
+    To prevent killing the current process, :class:`Processlet` replaces
+    :exc:`SystemExit` from child process with this exception.
+    """
+
+    def __init__(self, code):
+        self.code = code
+        super(ProcessExit, self).__init__(code)
+
+
+def _exited_with(code):
+    if code == -signal.SIGINT:
+        return gevent.GreenletExit('Exited by SIGINT')
+    return ProcessExit(code)
 
 
 NOOP_CALLBACK = lambda *x: None
@@ -147,8 +153,10 @@ class Processlet(gevent.Greenlet):
         args = (run,) + args
         super(Processlet, self).__init__(None, *args, **kwargs)
         self._result = gevent.event.AsyncResult()
+        self._birth = gevent.event.Event()
 
-    def send(self, signo):
+    def send(self, signo, timeout=None):
+        self._birth.wait(timeout)
         os.kill(self.pid, signo)
 
     @property
@@ -185,7 +193,7 @@ class Processlet(gevent.Greenlet):
         """The body of a parent process."""
         # NOTE: This function MUST NOT RAISE an exception.
         # Return `(False, exc_info, code)` instead of raising an exception.
-        child_ready = gevent.spawn(socket.recv, 1)
+        gevent.spawn(socket.recv, 1).rawlink(lambda g: self._birth.set())
         # Wait for the child to exit.
         loop = gevent.get_hub().loop
         try:
@@ -203,9 +211,9 @@ class Processlet(gevent.Greenlet):
                 except KILLING_EXCEPTION as exc:
                     # This processlet has been killed by another greenlet.  The
                     # received exception should be relayed to the child.
-                    while not child_ready.ready():
+                    while not self._birth.ready():
                         try:
-                            child_ready.join()
+                            self._birth.wait()
                         except KILLING_EXCEPTION:
                             continue
                     put(socket, exc)
@@ -216,12 +224,12 @@ class Processlet(gevent.Greenlet):
             code = exc.code
         # Collect the function result.
         if is_socket_readable(socket, 0):
-            child_ready.join()
+            self._birth.wait()
             ok, rv = get(socket)
             if not ok and isinstance(rv, SystemExit):
-                rv = ProcessExit(rv.code)
+                rv = _exited_with(rv.code)
         else:
-            ok, rv = False, ProcessExit(code)
+            ok, rv = False, _exited_with(code)
         return ok, rv, code
 
     def _child(self, socket, run, args, kwargs):
@@ -229,10 +237,13 @@ class Processlet(gevent.Greenlet):
         # Protect against SIGHUP from the parent.
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
         # Reset environments.
-        reset_signal_handlers(SIGNAL_NUMBERS - set([signal.SIGHUP]))
+        reset_signal_handlers(exclude=set([signal.SIGHUP]))
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
+        # Notify birth.
+        socket.send(b'\x01')
+        self._birth.set()
         # Spawn and ensure to be started the greenlet.
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         greenlet.join(0)
@@ -244,8 +255,6 @@ class Processlet(gevent.Greenlet):
             killed = lambda g, f: self._child_killed(socket, greenlet, f)
             signal.signal(signal.SIGHUP, killed)
         try:
-            # Notify starting.
-            socket.send(b'\x01')
             # Run the function.
             rv = greenlet.get()
         except SystemExit as rv:

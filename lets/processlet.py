@@ -135,6 +135,7 @@ def is_socket_readable(socket, timeout=None):
 
 
 NOOP_CALLBACK = lambda *x: None
+KILLING_EXCEPTION = (gevent.GreenletExit, Exception)
 
 
 class Processlet(gevent.Greenlet):
@@ -199,10 +200,14 @@ class Processlet(gevent.Greenlet):
                 except ProcessExit:
                     # Child has been exited.
                     raise
-                except (gevent.GreenletExit, Exception) as exc:
+                except KILLING_EXCEPTION as exc:
                     # This processlet has been killed by another greenlet.  The
                     # received exception should be relayed to the child.
-                    child_ready.join()
+                    while not child_ready.ready():
+                        try:
+                            child_ready.join()
+                        except KILLING_EXCEPTION:
+                            continue
                     put(socket, exc)
                     self.send(signal.SIGHUP)
                 finally:

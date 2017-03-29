@@ -100,8 +100,11 @@ def raise_when_killed(exception=Killed):
     try:
         while True:
             gevent.sleep(0)
-    except GreenletExit:
-        raise exception
+    except BaseException as exc:
+        if exception is None:
+            raise exc
+        else:
+            raise exception
 
 
 def get_pid_anyway(*args, **kwargs):
@@ -616,6 +619,15 @@ def test_processlet_pause_and_resume(pipe):
         job.join()
     os.kill(job.pid, signal.SIGCONT)
     assert job.get() == 42
+
+
+def test_processlet_kill_kill():
+    job = lets.Processlet.spawn(raise_when_killed, exception=None)
+    job.join(0)
+    job.kill(Error1, block=False)
+    job.kill(Error2, block=False)
+    with pytest.raises(Error1):
+        job.get()
 
 
 def test_quietlet_system_exit():

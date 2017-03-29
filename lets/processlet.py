@@ -6,8 +6,9 @@
    Maximizing multi-core use in gevent environment.
 
    :class:`Processlet` is a subclass of :class:`gevent.Greenlet` but focuses
-   to CPU-bound tasks not I/O-bound.  Never give up high concurrency gevent
-   offered.
+   to CPU-bound tasks instead of I/O-bound.
+
+   Never give up high concurrency gevent offered.
 
    .. sourcecode:: python
 
@@ -65,7 +66,7 @@ from lets.objectpool import ObjectPool
 from lets.quietlet import Quietlet
 
 
-__all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal']
+__all__ = ['ProcessExit', 'Processlet', 'pipe', 'ProcessPool', 'ProcessLocal']
 
 
 HEADER_SPEC = '=I'
@@ -145,8 +146,14 @@ KILLING_EXCEPTION = (gevent.GreenletExit, Exception)
 
 
 class Processlet(gevent.Greenlet):
+    """A subclass of :class:`gevent.Greenlet` but focuses to CPU-bound tasks
+    instead of I/O-bound.
+    """
 
+    #: The pid of the child process.
     pid = None
+
+    #: The exit code of the dead child process.
     code = None
 
     def __init__(self, run=None, *args, **kwargs):
@@ -155,29 +162,34 @@ class Processlet(gevent.Greenlet):
         self._result = gevent.event.AsyncResult()
         self._birth = gevent.event.Event()
 
-    def send(self, signo, timeout=None):
-        self._birth.wait(timeout)
-        os.kill(self.pid, signo)
-
     @property
     def exit_code(self):
+        """An alias of :attr:`code`."""
         return self.code
+
+    def send(self, signo, timeout=None):
+        """Sends a signal to the child process."""
+        self._birth.wait(timeout)
+        os.kill(self.pid, signo)
 
     def _run(self, run, *args, **kwargs):
         p, c = gevent.socket.socketpair()
         pid = gevent.os.fork(callback=self._child_exited)
         if pid == 0:
+            # Child-side.
             self.pid = os.getpid()
             self._child(c, run, args, kwargs)
-            return
-        self.pid = pid
-        ok, rv, self.code = self._parent(p)
-        if ok:
-            return rv
         else:
-            raise rv
+            # Parent-side.
+            self.pid = pid
+            ok, rv, self.code = self._parent(p)
+            if ok:
+                return rv
+            else:
+                raise rv
 
     def _child_exited(self, watcher):
+        """A callback function which is called when the child process exits."""
         watcher.stop()
         status = watcher.rstatus
         if os.WIFEXITED(status):
@@ -190,7 +202,7 @@ class Processlet(gevent.Greenlet):
         self.throw(exc)
 
     def _parent(self, socket):
-        """The body of a parent process."""
+        """The body of the parent process."""
         # NOTE: This function MUST NOT RAISE an exception.
         # Return `(False, exc_info, code)` instead of raising an exception.
         gevent.spawn(socket.recv, 1).rawlink(lambda g: self._birth.set())
@@ -233,7 +245,7 @@ class Processlet(gevent.Greenlet):
         return ok, rv, code
 
     def _child(self, socket, run, args, kwargs):
-        """The body of a child process."""
+        """The body of the child process."""
         # Protect against SIGHUP from the parent.
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
         # Reset environments.
@@ -269,7 +281,7 @@ class Processlet(gevent.Greenlet):
 
     @staticmethod
     def _child_killed(socket, greenlet, frame):
-        """A signal handler on a child process to detect killing exceptions
+        """A signal handler on the child process to detect killing exceptions
         from the parent process.
         """
         exc = get(socket)

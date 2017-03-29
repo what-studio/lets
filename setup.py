@@ -125,7 +125,7 @@ with open(os.path.join(__dir__, 'lets', '__about__.py')) as f:
 
 # use pytest instead.
 def run_tests(self):
-    raise SystemExit(__import__('pytest').main(['-v']))
+    raise SystemExit(__import__('pytest').main(['-vx']))
 test.run_tests = run_tests
 
 
@@ -150,7 +150,7 @@ setup(
                  'Programming Language :: Python :: 2.7',
                  'Programming Language :: Python :: Implementation :: CPython',
                  'Topic :: Software Development'],
-    install_requires=['gevent>=1.1.0', 'gipc'],
+    install_requires=['gevent>=1.1.0'],
     tests_require=['psutil', 'pytest', 'pytest-rerunfailures'],
     test_suite='...',
 )

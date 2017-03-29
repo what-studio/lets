@@ -5,7 +5,7 @@
 
    Links 2 greenlets by the slavery.
 
-   :copyright: (c) 2013-2016 by Heungsub Lee
+   :copyright: (c) 2013-2017 by Heungsub Lee
    :license: BSD, see LICENSE for more details.
 
 """

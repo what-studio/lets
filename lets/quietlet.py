@@ -6,7 +6,7 @@
    A quietlet swallows an exception to the hub.  The only way to get an
    exception raised in a quietlet is to call `get()`.
 
-   :copyright: (c) 2013-2016 by Heungsub Lee
+   :copyright: (c) 2013-2017 by Heungsub Lee
    :license: BSD, see LICENSE for more details.
 
 """
@@ -14,7 +14,7 @@ from __future__ import absolute_import
 
 import gevent
 
-from .utils import hub_replacer, HubWrapper
+from lets.utils import hub_replacer, HubWrapper
 
 
 __all__ = ['Quietlet', 'quiet']

@@ -6,8 +6,9 @@
    Maximizing multi-core use in gevent environment.
 
    :class:`Processlet` is a subclass of :class:`gevent.Greenlet` but focuses
-   to CPU-bound tasks not I/O-bound.  Never give up high concurrency gevent
-   offered.
+   to CPU-bound tasks instead of I/O-bound.
+
+   Never give up high concurrency gevent offered.
 
    .. sourcecode:: python
 
@@ -35,32 +36,95 @@
       proc = Processlet.spawn(hash_password, 'my_password')
       hash = proc.get()
 
-   :copyright: (c) 2013-2016 by Heungsub Lee
+   :copyright: (c) 2013-2017 by Heungsub Lee
    :license: BSD, see LICENSE for more details.
 
 """
 from __future__ import absolute_import
 
 from contextlib import contextmanager
+import io
 import os
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 import signal
-import sys
-import warnings
+import struct
 
 import gevent
 import gevent.event
 import gevent.local
 import gevent.pool
 import gevent.queue
-import gipc
+import gevent.select
+import gevent.signal
+import gevent.socket
+from gevent.socket import fromfd
 
-from .objectpool import ObjectPool
+from lets.objectpool import ObjectPool
+from lets.quietlet import Quietlet
 
 
-__all__ = ['ProcessExit', 'Processlet', 'ProcessPool', 'ProcessLocal']
+__all__ = ['ProcessExit', 'Processlet', 'pipe', 'ProcessPool', 'ProcessLocal']
 
 
-class ProcessExit(BaseException):
+HEADER_SPEC = '=I'
+HEADER_SIZE = struct.calcsize(HEADER_SPEC)
+
+
+def put(socket, value):
+    """Sends a Python value through the socket."""
+    data = pickle.dumps(value)
+    socket.sendall(struct.pack(HEADER_SPEC, len(data)))
+    socket.sendall(data)
+
+
+def get(socket):
+    """Receives a Python value through the socket."""
+    size_data = recv_enough(socket, HEADER_SIZE)
+    size, = struct.unpack(HEADER_SPEC, size_data)
+    data = recv_enough(socket, size)
+    return pickle.loads(data)
+
+
+def recv_enough(socket, size):
+    buf = io.BytesIO()
+    more = size
+    while more:
+        chunk = socket.recv(more)
+        if not chunk:
+            raise EOFError
+        buf.write(chunk)
+        more -= len(chunk)
+    return buf.getvalue()
+
+
+SIGNAL_NUMBERS = set([
+    getattr(signal, name) for name in dir(signal) if
+    name.startswith('SIG') and not name.startswith('SIG_') and
+    name not in ['SIGSTOP', 'SIGKILL', 'SIGPIPE']
+])
+
+
+def reset_signal_handlers(signos=SIGNAL_NUMBERS, exclude=()):
+    for signo in signos:
+        if signo < signal.NSIG and signo not in exclude:
+            signal.signal(signo, signal.SIG_DFL)
+
+
+def reset_gevent():
+    gevent.reinit()
+    gevent.get_hub().destroy(destroy_loop=True)
+    gevent.get_hub(default=True)  # Here is necessary.
+
+
+def is_socket_readable(socket, timeout=None):
+    readable, __, __ = gevent.select.select([socket], [], [], timeout)
+    return bool(readable)
+
+
+class ProcessExit(Exception):
     """Originally, :exc:`SystemExit` kills all independent gevent waitings.
     To prevent killing the current process, :class:`Processlet` replaces
     :exc:`SystemExit` from child process with this exception.
@@ -71,156 +135,234 @@ class ProcessExit(BaseException):
         super(ProcessExit, self).__init__(code)
 
 
-def call_and_put(function, args, kwargs, pipe):
-    """Calls the function and sends result to the pipe."""
-    def pipe_put(value):
-        try:
-            pipe.put(value)
-        except OSError:
-            pass
-    try:
-        value = function(*args, **kwargs)
-    except gevent.GreenletExit as exc:
-        pipe_put((True, exc))
-    except SystemExit as exc:
-        exc_info = sys.exc_info()
-        pipe_put((False, exc))
-        raise exc_info[0], exc_info[1], exc_info[2]
-    except BaseException as exc:
-        pipe_put((False, exc))
-        raise SystemExit(1)
-    else:
-        pipe_put((True, value))
-    raise SystemExit(0)
+def _exited_with(code):
+    if code == -signal.SIGINT:
+        return gevent.GreenletExit('Exited by SIGINT')
+    return ProcessExit(code)
 
 
-def get_and_kill(pipe, greenlet):
-    """Kills the greenlet if the parent sends an exception."""
-    try:
-        exc = pipe.get()
-    except EOFError as exc:
-        pass
-    greenlet.kill(exc, block=False)
+NOOP_CALLBACK = lambda *x: None
+KILLING_EXCEPTION = (gevent.GreenletExit, Exception)
 
 
 class Processlet(gevent.Greenlet):
-    """Calls a function in child process."""
+    """A subclass of :class:`gevent.Greenlet` but focuses to CPU-bound tasks
+    instead of I/O-bound.
+    """
 
-    function = None
+    #: The pid of the child process.
     pid = None
-    exit_code = None
 
-    def __init__(self, function=None, *args, **kwargs):
+    #: The exit code of the dead child process.
+    code = None
+
+    def __init__(self, run=None, *args, **kwargs):
+        args = (run,) + args
         super(Processlet, self).__init__(None, *args, **kwargs)
-        self.function = function
-        self._queue = gevent.queue.Queue()
-        self._started = gevent.event.Event()
+        self._result = gevent.event.AsyncResult()
+        self._birth = gevent.event.Event()
 
-    def _call_when_started(self, function, *args, **kwargs):
-        if self._queue is None:
-            raise RuntimeError('child process already started')
-        self._queue.put((function, args, kwargs))
+    @property
+    def exit_code(self):
+        """An alias of :attr:`code`."""
+        return self.code
 
-    def _wait_starting(self, timeout=None):
-        self._started.wait(timeout=timeout)
-
-    def send(self, signo, block=True, timeout=None):
+    def send(self, signo, timeout=None):
         """Sends a signal to the child process."""
-        if block:
-            self._wait_starting(timeout=timeout)
-        elif not self._started.is_set():
-            self._call_when_started(self.send, signo, block=False)
-            return
+        self._birth.wait(timeout)
         os.kill(self.pid, signo)
-        if block:
-            self.join(timeout)
 
-    def join(self, timeout=None):
-        """Waits until finishes or timeout expires like a greenlet.  If you
-        set timeout as Zero, it waits until the child process starts.
-        """
-        if timeout == 0:
-            self._wait_starting()
-        return super(Processlet, self).join(timeout)
-
-    def kill(self, exception=gevent.GreenletExit, block=True, timeout=None):
-        """Kills the child process like a greenlet."""
-        if block:
-            self._wait_starting(timeout=timeout)
-        elif not self._started.is_set():
-            self._call_when_started(self.kill, exception, block=False)
-            return
-        return super(Processlet, self).kill(exception, block, timeout)
-
-    def _run(self, *args, **kwargs):
-        """Opens pipe and starts child process to run :meth:`_run_child`.
-        Then it waits for the child process done.
-        """
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            pipe_pair = gipc.pipe(duplex=True)
-        with pipe_pair as (p_pipe, c_pipe):
-            args = (c_pipe,) + args
-            proc = gipc.start_process(self._run_child, args, kwargs)
-            successful, value = True, None
-            try:
-                # wait for child process started.
-                self.pid = p_pipe.get()
-                assert self.pid == proc.pid
-                self._started.set()
-                # call reserved function calls by :meth:`_call_when_started`.
-                while True:
-                    try:
-                        f, args, kwargs = self._queue.get(block=False)
-                    except gevent.queue.Empty:
-                        break
-                    else:
-                        f(*args, **kwargs)
-                assert self._queue.empty()
-                self._queue = None
-                # wait for result.
-                successful, value = p_pipe.get()
-            except EOFError:
-                proc.join()
-                if proc.exitcode:
-                    successful, value = False, SystemExit(proc.exitcode)
-            except BaseException as value:
-                successful = isinstance(value, gevent.GreenletExit)
-                try:
-                    p_pipe.put(value)
-                except OSError:
-                    # broken pipe.
-                    pass
-                else:
-                    if self._started.is_set():
-                        successful, value = p_pipe.get()
-                proc.join()
-            finally:
-                proc.join()  # wait until the child process exits.
-        self.exit_code = proc.exitcode
-        if successful:
-            return value
-        # failure.
-        if isinstance(value, SystemExit):
-            if value.code == -signal.SIGINT:
-                raise gevent.GreenletExit('Exited by SIGINT')
+    def _run(self, run, *args, **kwargs):
+        p, c = gevent.socket.socketpair()
+        pid = gevent.os.fork(callback=self._child_exited)
+        if pid == 0:
+            # Child-side.
+            self.pid = os.getpid()
+            self._child(c, run, args, kwargs)
+        else:
+            # Parent-side.
+            self.pid = pid
+            ok, rv, self.code = self._parent(p)
+            if ok:
+                return rv
             else:
-                raise ProcessExit(value.code)
-        else:
-            raise value
+                raise rv
 
-    def _run_child(self, pipe, *args, **kwargs):
-        """The target of child process.  It puts result to the pipe when it
-        done.
-        """
-        try:
-            pipe.put(os.getpid())  # child started.
-        except OSError:
-            pass
+    def _child_exited(self, watcher):
+        """A callback function which is called when the child process exits."""
+        watcher.stop()
+        status = watcher.rstatus
+        if os.WIFEXITED(status):
+            code = os.WEXITSTATUS(status)
         else:
-            g = gevent.spawn(call_and_put, self.function, args, kwargs, pipe)
-            gevent.spawn(get_and_kill, pipe, g)
-            g.join()
+            assert os.WIFSIGNALED(status)
+            code = -os.WTERMSIG(status)
+        exc = ProcessExit(code)
+        self._result.set_exception(exc)
+        self.throw(exc)
+
+    def _parent(self, socket):
+        """The body of the parent process."""
+        # NOTE: This function MUST NOT RAISE an exception.
+        # Return `(False, exc_info, code)` instead of raising an exception.
+        gevent.spawn(socket.recv, 1).rawlink(lambda g: self._birth.set())
+        # Wait for the child to exit.
+        loop = gevent.get_hub().loop
+        try:
+            while True:
+                # NOTE: If we don't start a new watcher, the below
+                # :meth:`AsyncResult.get` will be failed with :exc:`LoopExit`.
+                # See this issue: https://github.com/gevent/gevent/issues/878
+                new_watcher = loop.child(self.pid, False)
+                new_watcher.start(NOOP_CALLBACK)
+                try:
+                    self._result.get()
+                except ProcessExit:
+                    # Child has been exited.
+                    raise
+                except KILLING_EXCEPTION as exc:
+                    # This processlet has been killed by another greenlet.  The
+                    # received exception should be relayed to the child.
+                    while not self._birth.ready():
+                        try:
+                            self._birth.wait()
+                        except KILLING_EXCEPTION:
+                            continue
+                    put(socket, exc)
+                    self.send(signal.SIGHUP)
+                finally:
+                    new_watcher.stop()
+        except ProcessExit as exc:
+            code = exc.code
+        # Collect the function result.
+        if is_socket_readable(socket, 0):
+            self._birth.wait()
+            ok, rv = get(socket)
+            if not ok and isinstance(rv, SystemExit):
+                rv = _exited_with(rv.code)
+        else:
+            ok, rv = False, _exited_with(code)
+        return ok, rv, code
+
+    def _child(self, socket, run, args, kwargs):
+        """The body of the child process."""
+        # Protect against SIGHUP from the parent.
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        # Reset environments.
+        reset_signal_handlers(exclude=set([signal.SIGHUP]))
+        reset_gevent()
+        # Reinit the socket because the hub has been destroyed.
+        socket = fromfd(socket.fileno(), socket.family, socket.proto)
+        # Notify birth.
+        socket.send(b'\x01')
+        self._birth.set()
+        # Spawn and ensure to be started the greenlet.
+        greenlet = Quietlet.spawn(run, *args, **kwargs)
+        greenlet.join(0)
+        # Kill the greenlet if there's early exception.  Otherwise, register
+        # the formal exception catcher.
+        if is_socket_readable(socket, 0):
+            greenlet.kill(get(socket), block=False)
+        else:
+            killed = lambda g, f: self._child_killed(socket, greenlet, f)
+            signal.signal(signal.SIGHUP, killed)
+        try:
+            # Run the function.
+            rv = greenlet.get()
+        except SystemExit as rv:
+            ok, code = False, rv.code
+        except BaseException as rv:
+            ok, code = False, 1
+        else:
+            ok, code = True, 0
+        # Notify the result.
+        put(socket, (ok, rv))
+        os._exit(code)
+
+    @staticmethod
+    def _child_killed(socket, greenlet, frame):
+        """A signal handler on the child process to detect killing exceptions
+        from the parent process.
+        """
+        exc = get(socket)
+        if greenlet.gr_frame is frame:
+            # The greenlet is busy.
+            raise exc
+        greenlet.kill(exc, block=False)
+
+
+class pipe(object):
+    """Opens 2 :class:`Hole`s that pairs with each other.
+
+    You can assign the holes into separate variables like tuple assigning:
+
+       left, right = pipe()
+       do_something(left, right)
+       left.close()
+       right.close()
+
+    Or open and close as a context manager:
+
+       with pipe() as (left, right):
+           do_something(left, right)
+
+    """
+
+    __slots__ = ('left', 'right')
+
+    def __init__(self):
+        left, right = gevent.socket.socketpair()
+        self.left, self.right = Hole(left), Hole(right)
+
+    def close(self):
+        self.left.close()
+        self.right.close()
+
+    def __iter__(self):
+        yield self.left
+        yield self.right
+
+    def __enter__(self):
+        return (self.left, self.right)
+
+    def __exit__(self, *exc_info):
+        self.close()
+
+
+class Hole(object):
+    """A socket holder to pass a socket into a :class:`Processlet` safely."""
+
+    __slots__ = ('fileno', 'family', 'proto', '_socket', '_hub_id')
+
+    def __init__(self, socket):
+        self.fileno = socket.fileno()
+        self.family = socket.family
+        self.proto = socket.proto
+        self._socket = socket
+        self._hub_id = id(gevent.get_hub())
+
+    def __getstate__(self):
+        return (self.fileno, self.family, self.proto)
+
+    def __setstate__(self, (fileno, family, proto)):
+        self.fileno, self.family, self.proto = fileno, family, proto
+
+    def socket(self):
+        """Gets the underlying socket safely."""
+        hub_id = id(gevent.get_hub())
+        if hub_id != getattr(self, '_hub_id', -1):
+            self._hub_id = hub_id
+            self._socket = fromfd(self.fileno, self.family, self.proto)
+        return self._socket
+
+    def put(self, value):
+        return put(self.socket(), value)
+
+    def get(self):
+        return get(self.socket())
+
+    def close(self):
+        self.socket().close()
 
 
 class ProcessPool(gevent.pool.Pool):
@@ -242,7 +384,7 @@ class ProcessPool(gevent.pool.Pool):
         super(ProcessPool, self).kill(exception, block, timeout)
 
     def greenlet_class(self, function, *args, **kwargs):
-        """The fake greenlet class.  It wraps the function with
+        """A fake greenlet class which wraps the given function call with
         :meth:`_run_customer`.
         """
         return gevent.Greenlet(self._run_customer, function, *args, **kwargs)
@@ -250,35 +392,48 @@ class ProcessPool(gevent.pool.Pool):
     def _run_customer(self, function, *args, **kwargs):
         """Sends a call to an available worker and receives result."""
         worker = self._worker_pool.get()
-        worker.pipe.put((function, args, kwargs))
+        socket = worker.hole.socket()
         try:
-            successful, value = worker.pipe.get()
+            # Request the function call.
+            put(socket, (function, args, kwargs))
+            # Receive the result.
+            ok, rv = get(socket)
         finally:
             self._worker_pool.release(worker)
-        if successful:
-            return value
+        if ok:
+            return rv
         else:
-            raise value
+            raise rv
 
-    def _run_worker(self, pipe):
+    def _run_worker(self, hole):
         """The main loop of worker."""
-        while True:
+        socket = hole.socket()
+        def _put(value):
             try:
-                function, args, kwargs = pipe.get()
+                put(socket, value)
+            except OSError:
+                pass
+        while True:
+            # Receive a function call request from customers.
+            try:
+                function, args, kwargs = get(socket)
             except EOFError:
                 break
+            # Call the function and let the customer know.
             try:
-                call_and_put(function, args, kwargs, pipe)
-            except SystemExit:
-                pass
+                value = function(*args, **kwargs)
+            except gevent.GreenletExit as exc:
+                _put((True, exc))
+            except BaseException as exc:
+                _put((False, exc))
+            else:
+                _put((True, value))
 
     def _spawn_worker(self):
         """Spanws a new worker."""
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            p_pipe, c_pipe = gipc.pipe(duplex=True)
-        worker = Processlet.spawn(self._run_worker, c_pipe)
-        worker.pipe = p_pipe
+        p, c = pipe()
+        worker = Processlet.spawn(self._run_worker, c)
+        worker.hole = p
         worker.rawlink(self._discard_worker)
         return worker
 

@@ -15,30 +15,11 @@ from gevent.event import AsyncResult, Event
 from gevent.lock import Semaphore
 from gevent.pool import Group
 from gevent.queue import Channel, Full
-import gipc
 import psutil
 import pytest
 
 import lets
 from lets.quietlet import quiet
-
-
-group_names = ['greenlet_group', 'process_group']
-
-
-@pytest.fixture(params=group_names)
-def group(request):
-    if request.param == 'greenlet_group':
-        return Group()
-    elif request.param == 'process_group':
-        process_group = Group()
-        process_group.greenlet_class = lets.Processlet
-        return process_group
-
-
-@pytest.fixture
-def proc():
-    return psutil.Process(os.getpid())
 
 
 @contextmanager
@@ -96,12 +77,34 @@ class ExpectedError(BaseException):
     pass
 
 
+class Error1(Exception):
+    pass
+
+
+class Error2(Exception):
+    pass
+
+
+def notify_entry(hole, f, *args, **kwargs):
+    g = lets.Quietlet.spawn(f, *args, **kwargs)
+    g.join(0)
+    try:
+        hole.put(True)
+        return g.get()
+    except BaseException as exc:
+        g.kill(exc)
+        return g.get()
+
+
 def raise_when_killed(exception=Killed):
     try:
         while True:
             gevent.sleep(0)
-    except GreenletExit:
-        raise exception
+    except BaseException as exc:
+        if exception is None:
+            raise exc
+        else:
+            raise exception
 
 
 def get_pid_anyway(*args, **kwargs):
@@ -113,7 +116,6 @@ def get_pid_anyway(*args, **kwargs):
 
 def test_processlet_spawn_child_process():
     job = lets.Processlet.spawn(os.getppid)
-    job.join(0)
     assert job.exit_code is None
     assert job.pid != os.getpid()
     assert job.get() == os.getpid()
@@ -130,6 +132,7 @@ def test_processlet_join_zero():
 
 @pytest.mark.flaky(reruns=10)
 def test_processlet_parallel_execution():
+    # NOTE: Here's a potential hang.
     cpu_count = multiprocessing.cpu_count()
     if cpu_count < 2:
         pytest.skip('CPU not enough')
@@ -163,21 +166,29 @@ def test_processlet_args():
     assert job.get() == (args, kwargs)
 
 
-def test_processlet_pipe_arg():
-    with gipc.pipe() as (r, w):
-        job = lets.Processlet.spawn(type(w).put, w, 1)
-        assert r.get() == 1
-        job.join()
+# def test_processlet_pipe_arg():
+#     with gipc.pipe() as (r, w):
+#         job = lets.Processlet.spawn(type(w).put, w, 1)
+#         assert r.get() == 1
+#         job.join()
 
 
 def test_processlet_without_start():
     job = lets.Processlet(os.getppid)
     assert job.exit_code is None
     assert job.pid is None
-    with pytest.raises(gevent.hub.LoopExit):
+    with pytest.raises(gevent.Timeout), gevent.Timeout(0.1):
         job.join()
-    with pytest.raises(gevent.hub.LoopExit):
-        job.get()
+    with pytest.raises(gevent.Timeout):
+        job.get(timeout=0.1)
+
+
+def test_processlet_unref():
+    assert gevent.get_hub().loop.activecnt == 0
+    job = lets.Processlet.spawn(os.getppid)
+    assert gevent.get_hub().loop.activecnt == 1
+    job.join()
+    assert gevent.get_hub().loop.activecnt == 0
 
 
 def test_processlet_start_twice():
@@ -189,20 +200,41 @@ def test_processlet_start_twice():
     assert r1 == r2
 
 
-def f_for_test_processlet_callback():
-    gevent.sleep(0.5)
-    0 / 0
+# def f_for_test_processlet_callback():
+#     gevent.sleep(0.5)
+#     0 / 0
 
 
-def test_processlet_callback():
-    pool = lets.ProcessPool(2)
-    r = []
-    with killing(pool):
-        for x in range(10):
-            job = pool.spawn(f_for_test_processlet_callback)
-            job.link(lambda j: (j.join(), r.append(1)))
-        pool.join()
-    assert len(r) == 10
+# def test_processlet_callback():
+#     pool = lets.ProcessPool(2)
+#     r = []
+#     with killing(pool):
+#         for x in range(10):
+#             job = pool.spawn(f_for_test_processlet_callback)
+#             job.link(lambda j: (j.join(), r.append(1)))
+#         pool.join()
+#     assert len(r) == 10
+
+
+def test_kill_processlet_before_starting(proc):
+    job = lets.Processlet.spawn(raise_when_killed)
+    assert len(proc.children()) == 0
+    job.kill()
+    assert isinstance(job.get(), GreenletExit)
+    assert len(proc.children()) == 0
+
+
+def test_kill_processlet_after_starting(proc, pipe):
+    p, c = pipe
+    job = lets.Processlet.spawn(notify_entry, c, raise_when_killed)
+    assert len(proc.children()) == 0
+    assert p.get() is True
+    assert len(proc.children()) == 1
+    job.kill()
+    assert len(proc.children()) == 0
+    with pytest.raises(Killed):
+        job.get()
+    assert job.exit_code == 1
 
 
 def test_kill_processlet(proc):
@@ -214,6 +246,17 @@ def test_kill_processlet(proc):
     with pytest.raises(Killed):
         job.get()
     assert job.exit_code == 1
+
+
+def test_kill_processlet_after_join_another_processlet(proc):
+    job1 = lets.Processlet.spawn(gevent.sleep, 1)
+    job2 = lets.Processlet.spawn(gevent.sleep, 3)
+    job1.join(0.1)
+    with gevent.Timeout(5, AssertionError('job2.kill() timed out')):
+        job2.kill()
+    assert job2.ready()
+    job1.join()
+    assert job1.ready()
 
 
 def test_kill_processlet_nonblock(proc):
@@ -360,11 +403,23 @@ def test_process_pool_raises(proc):
     assert len(proc.children()) == 0
 
 
+@contextmanager
+def raises_from(exc_type, code_name):
+    try:
+        yield
+    except exc_type:
+        __, __, tb = sys.exc_info()
+        while tb.tb_next is not None:
+            tb = tb.tb_next
+        assert tb.tb_frame.f_code.co_name == code_name
+    else:
+        raise AssertionError('Expected error not raised')
+
+
 def test_quietlet():
     job = lets.Quietlet.spawn(divide_by_zero)
-    with pytest.raises(ZeroDivisionError) as e:
+    with raises_from(ZeroDivisionError, 'divide_by_zero'):
         job.get()
-    assert e.traceback[-1].name == 'divide_by_zero'
 
 
 def test_quietlet_doesnt_print_exception(capsys):
@@ -387,7 +442,23 @@ def test_kill_quietlet():
         job.get()
 
 
-def test_quietlet_no_leak():
+@pytest.fixture
+def ref_count():
+    # try:
+    #     # CPython
+    #     return sys.getrefcount
+    # except AttributeError:
+    # PyPy
+    def count_referrers(x):
+        gc.collect()
+        refs = gc.get_referrers(x)
+        refs = reduce(lambda refs, r: refs.append(r) or refs
+                      if r not in refs else refs, refs, [])
+        return len(refs)
+    return count_referrers
+
+
+def _test_quietlet_no_leak(ref_count):
     ref = weakref.ref(lets.Quietlet.spawn(divide_by_zero))
     gc.collect()
     assert isinstance(ref(), lets.Quietlet)
@@ -395,13 +466,13 @@ def test_quietlet_no_leak():
     gc.collect()
     assert ref() is None
     job = lets.Quietlet(divide_by_zero)
-    assert sys.getrefcount(job) == 2  # variable 'job' (1) + argument (1)
+    assert ref_count(job) == 2  # variable 'job' (1) + argument (1)
     job.start()
-    assert sys.getrefcount(job) == 3  # + hub (1)
+    assert ref_count(job) == 3  # + hub (1)
     job.join()
-    assert sys.getrefcount(job) == 6  # + gevent (3)
+    assert ref_count(job) == 6  # + gevent (3)
     gevent.sleep(0)
-    assert sys.getrefcount(job) == 2  # - gevent (3) - hub (1)
+    assert ref_count(job) == 2  # - gevent (3) - hub (1)
     ref = weakref.ref(job)
     del job
     gc.collect()
@@ -413,9 +484,8 @@ def test_quiet_group():
     group = Group()
     group.spawn(divide_by_zero)
     group.spawn(divide_by_zero)
-    with pytest.raises(ZeroDivisionError) as e:
+    with raises_from(ZeroDivisionError, 'divide_by_zero'):
         group.join(raise_error=True)
-    assert e.traceback[-1].name == 'divide_by_zero'
 
 
 def test_greenlet_exit(group):
@@ -429,19 +499,19 @@ def test_greenlet_exit(group):
 def test_task_kills_group(proc, group):
     def f1():
         gevent.sleep(0.1)
-        raise RuntimeError
+        raise Error1
     def f2():
         try:
-            gevent.sleep(10)
-        except RuntimeError:
-            raise Killed
+            gevent.sleep(100)
+        except Error1:
+            raise Error2
     def f3():
-        gevent.sleep(10)
+        gevent.sleep(100)
     g1 = group.spawn(f1)
     g1.link_exception(lambda g: group.kill(g.exception))
     g2 = group.spawn(f2)
     g3 = group.spawn(f3)
-    with pytest.raises((RuntimeError, Killed)):
+    with pytest.raises((Error1, Error2)):
         group.join(raise_error=True)
     assert len(proc.children()) == 0
     assert not group.greenlets
@@ -451,9 +521,9 @@ def test_task_kills_group(proc, group):
     assert not g1.successful()
     assert not g2.successful()
     assert not g3.successful()
-    assert isinstance(g1.exception, RuntimeError)
-    assert isinstance(g2.exception, Killed)
-    assert isinstance(g3.exception, RuntimeError)
+    assert isinstance(g1.exception, Error1)
+    assert isinstance(g2.exception, Error2)
+    assert isinstance(g3.exception, Error1)
 
 
 def _test_quiet_context(capsys):
@@ -505,21 +575,25 @@ def test_greenlet_system_exit():
         gevent.spawn(gevent.sleep, 0.1).join()
 
 
-def test_processlet_system_exit():
+def test_processlet_system_exit(pipe):
     job = lets.Processlet.spawn(kill_itself)
     gevent.spawn(gevent.sleep, 0.1).join()
     with pytest.raises(lets.ProcessExit) as e:
         job.get()
     assert e.value.code == -signal.SIGKILL
     assert job.exit_code == -signal.SIGKILL
+    gevent.sleep(1)
     job = lets.Processlet.spawn(busy_waiting, 10)
-    job.send(signal.SIGTERM)
+    job.join(0)
+    os.kill(job.pid, signal.SIGTERM)
     with pytest.raises(lets.ProcessExit) as e:
         job.get()
     assert e.value.code == -signal.SIGTERM
     assert job.exit_code == -signal.SIGTERM
-    job = lets.Processlet.spawn(raise_when_killed, SystemExit(42))
-    job.join(0)
+    p, c = pipe
+    job = lets.Processlet.spawn(notify_entry, c, raise_when_killed,
+                                SystemExit(42))
+    p.get()
     job.kill()
     with pytest.raises(lets.ProcessExit) as e:
         job.get()
@@ -532,6 +606,27 @@ def test_processlet_exits_by_sigint():
     job.send(signal.SIGINT)
     job.join()
     assert isinstance(job.get(), gevent.GreenletExit)
+
+
+def test_processlet_pause_and_resume(pipe):
+    p, c = pipe
+    job = lets.Processlet.spawn(notify_entry, c, lambda: gevent.sleep(2) or 42)
+    p.get()
+    os.kill(job.pid, signal.SIGSTOP)
+    gevent.sleep(1)
+    with pytest.raises(gevent.Timeout), gevent.Timeout(3):
+        job.join()
+    os.kill(job.pid, signal.SIGCONT)
+    assert job.get() == 42
+
+
+def test_processlet_kill_kill():
+    job = lets.Processlet.spawn(raise_when_killed, exception=None)
+    job.join(0)
+    job.kill(Error1, block=False)
+    job.kill(Error2, block=False)
+    with pytest.raises(Error1):
+        job.get()
 
 
 def test_quietlet_system_exit():
@@ -551,8 +646,8 @@ def test_object_pool():
     assert pool.available()
     o2 = pool.get()
     assert not pool.available()
-    with pytest.raises(gevent.hub.LoopExit):
-        pool.get()
+    with pytest.raises(gevent.Timeout):
+        pool.get(timeout=0.1)
     assert o1 is not o2
     assert len(pool.objects) == 2
     # release and get again

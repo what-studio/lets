@@ -49,6 +49,7 @@ try:
     import cPickle as pickle
 except ImportError:
     import pickle
+import select
 import signal
 import struct
 
@@ -120,7 +121,11 @@ def reset_gevent():
 
 
 def is_socket_readable(socket, timeout=None):
-    readable, __, __ = gevent.select.select([socket], [], [], timeout)
+    if timeout == 0:
+        _select = select.select
+    else:
+        _select = gevent.select.select
+    readable, __, __ = _select([socket], [], [], timeout)
     return bool(readable)
 
 
@@ -229,7 +234,7 @@ class Processlet(gevent.Greenlet):
                         except KILLING_EXCEPTION:
                             continue
                     put(socket, exc)
-                    self.send(signal.SIGHUP)
+                    self.send(signal.SIGTERM)
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:
@@ -246,10 +251,10 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, socket, run, args, kwargs):
         """The body of the child process."""
-        # Protect against SIGHUP from the parent.
-        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        # Protect against SIGTERM from the parent.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         # Reset environments.
-        reset_signal_handlers(exclude=set([signal.SIGHUP]))
+        reset_signal_handlers(exclude=set([signal.SIGTERM]))
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
@@ -265,7 +270,7 @@ class Processlet(gevent.Greenlet):
             greenlet.kill(get(socket), block=False)
         else:
             killed = lambda g, f: self._child_killed(socket, greenlet, f)
-            signal.signal(signal.SIGHUP, killed)
+            signal.signal(signal.SIGTERM, killed)
         try:
             # Run the function.
             rv = greenlet.get()

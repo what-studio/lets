@@ -247,6 +247,28 @@ def test_kill_processlet(proc):
     assert job.exit_code == 1
 
 
+def test_kill_processlet_busy(proc):
+    # without killing signal
+    job = lets.Processlet.spawn(busy_waiting, 60)
+    job.join(0)
+    assert len(proc.children()) == 1
+    with pytest.raises(gevent.Timeout), gevent.Timeout(0.5):
+        job.kill()
+    assert len(proc.children()) == 1
+    job.send(signal.SIGKILL)
+    job.join()
+    assert len(proc.children()) == 0
+    # with killing signal
+    job = lets.Processlet.spawn(signal.SIGUSR1, busy_waiting, 60)
+    job.join(0)
+    assert len(proc.children()) == 1
+    job.kill(Killed)
+    assert len(proc.children()) == 0
+    with pytest.raises(Killed):
+        job.get()
+    assert job.exit_code == 1
+
+
 def test_kill_processlet_after_join_another_processlet(proc):
     job1 = lets.Processlet.spawn(gevent.sleep, 1)
     job2 = lets.Processlet.spawn(gevent.sleep, 3)

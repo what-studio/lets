@@ -147,7 +147,6 @@ def _exited_with(code):
 
 
 NOOP_CALLBACK = lambda *x: None
-KILLING_EXCEPTION = (gevent.GreenletExit, Exception)
 
 
 class Processlet(gevent.Greenlet):
@@ -228,13 +227,17 @@ class Processlet(gevent.Greenlet):
                 except ProcessExit:
                     # Child has been exited.
                     raise
-                except KILLING_EXCEPTION as exc:
+                except gevent.hub.Hub.SYSTEM_ERROR:
+                    raise
+                except BaseException as exc:
                     # This processlet has been killed by another greenlet.  The
                     # received exception should be relayed to the child.
                     while not self._birth.ready():
                         try:
                             self._birth.wait()
-                        except KILLING_EXCEPTION:
+                        except gevent.hub.Hub.SYSTEM_ERROR:
+                            raise
+                        except:
                             continue
                     put(socket, exc)
                     if kill_signo:
@@ -255,30 +258,22 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, socket, run, args, kwargs):
         """The body of the child process."""
-        # Protect against killing signal from the parent.
         kill_signo = getattr(self, '_kill_signo', None)
-        if kill_signo:
-            signal.signal(kill_signo, signal.SIG_IGN)
         # Reset environments.
         reset_signal_handlers(exclude=set([kill_signo] if kill_signo else []))
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
+        if kill_signo:
+            killed = lambda g, f: self._child_killed(socket, greenlet, f)
+            signal.signal(kill_signo, killed)
         # Notify birth.
         socket.send(b'\x01')
         self._birth.set()
         # Spawn and ensure to be started the greenlet.
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         greenlet.join(0)
-        # Kill the greenlet if there's early exception.  Otherwise, register
-        # the formal exception catcher.
-        if is_socket_readable(socket, 0):
-            greenlet.kill(get(socket), block=False)
-        if kill_signo:
-            killed = lambda g, f: self._child_killed(socket, greenlet, f)
-            signal.signal(kill_signo, killed)
-        else:
-            gevent.spawn(self._watch_child_killers, socket, greenlet)
+        gevent.spawn(self._watch_child_killers, socket, greenlet)
         try:
             # Run the function.
             rv = greenlet.get()
@@ -298,7 +293,7 @@ class Processlet(gevent.Greenlet):
         from the parent process.
         """
         exc = get(socket)
-        if greenlet.gr_frame is frame:
+        if greenlet.gr_frame in (None, frame):
             # The greenlet is busy.
             raise exc
         greenlet.kill(exc, block=False)

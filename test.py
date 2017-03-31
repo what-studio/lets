@@ -15,7 +15,6 @@ from gevent.event import AsyncResult, Event
 from gevent.lock import Semaphore
 from gevent.pool import Group
 from gevent.queue import Channel, Full
-import psutil
 import pytest
 
 import lets

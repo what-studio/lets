@@ -161,9 +161,11 @@ class Processlet(gevent.Greenlet):
     #: The exit code of the dead child process.
     code = None
 
-    def __init__(self, run=None, *args, **kwargs):
-        args = (run,) + args
-        super(Processlet, self).__init__(None, *args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        if isinstance(args[0], int):
+            self._kill_signo, args = args[0], args[1:]
+        run, args = args[0], args[1:]
+        super(Processlet, self).__init__(None, run, *args, **kwargs)
         self._result = gevent.event.AsyncResult()
         self._birth = gevent.event.Event()
 
@@ -213,6 +215,7 @@ class Processlet(gevent.Greenlet):
         gevent.spawn(socket.recv, 1).rawlink(lambda g: self._birth.set())
         # Wait for the child to exit.
         loop = gevent.get_hub().loop
+        kill_signo = getattr(self, '_kill_signo', None)
         try:
             while True:
                 # NOTE: If we don't start a new watcher, the below
@@ -234,7 +237,8 @@ class Processlet(gevent.Greenlet):
                         except KILLING_EXCEPTION:
                             continue
                     put(socket, exc)
-                    self.send(signal.SIGTERM)
+                    if kill_signo:
+                        self.send(kill_signo)
                 finally:
                     new_watcher.stop()
         except ProcessExit as exc:
@@ -251,10 +255,12 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, socket, run, args, kwargs):
         """The body of the child process."""
-        # Protect against SIGTERM from the parent.
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        # Protect against killing signal from the parent.
+        kill_signo = getattr(self, '_kill_signo', None)
+        if kill_signo:
+            signal.signal(kill_signo, signal.SIG_IGN)
         # Reset environments.
-        reset_signal_handlers(exclude=set([signal.SIGTERM]))
+        reset_signal_handlers(exclude=set([kill_signo] if kill_signo else []))
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
@@ -268,9 +274,11 @@ class Processlet(gevent.Greenlet):
         # the formal exception catcher.
         if is_socket_readable(socket, 0):
             greenlet.kill(get(socket), block=False)
-        else:
+        if kill_signo:
             killed = lambda g, f: self._child_killed(socket, greenlet, f)
-            signal.signal(signal.SIGTERM, killed)
+            signal.signal(kill_signo, killed)
+        else:
+            gevent.spawn(self._watch_child_killers, socket, greenlet)
         try:
             # Run the function.
             rv = greenlet.get()
@@ -294,6 +302,18 @@ class Processlet(gevent.Greenlet):
             # The greenlet is busy.
             raise exc
         greenlet.kill(exc, block=False)
+
+    @staticmethod
+    def _watch_child_killers(socket, greenlet):
+        """A loop to watch child process killing exception from the parent
+        process.
+        """
+        while True:
+            try:
+                exc = get(socket)
+            except OSError:
+                break
+            greenlet.kill(exc, block=False)
 
 
 class pipe(object):

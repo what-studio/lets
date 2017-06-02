@@ -273,10 +273,9 @@ class Processlet(gevent.Greenlet):
         # Spawn and ensure to be started the greenlet.
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         try:
-            greenlet.join(0)
+            greenlet.join(0)  # Catch exceptions before blocking.
             gevent.spawn(self._watch_child_killers, socket, greenlet)
-            # Run the function.
-            rv = greenlet.get()
+            rv = greenlet.get()  # Run the function.
         except SystemExit as rv:
             ok, code = False, rv.code
         except BaseException as rv:

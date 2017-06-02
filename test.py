@@ -654,13 +654,14 @@ def test_processlet_kill_kill():
     (Greenlet, SystemExit), (lets.Processlet, lets.ProcessExit)
 ])
 def test_exit_in_greenlet(greenlet_class, exception_class):
+    code = random.randrange(1, 65)
     def f():
-        raise SystemExit(42)
+        raise SystemExit(code)
     g = greenlet_class.spawn(f)
     with pytest.raises(exception_class) as excinfo:
         g.get()
     assert excinfo.type is exception_class
-    assert excinfo.value.args == (42,)
+    assert excinfo.value.args == (code,)
 
 
 # def test_exit_from_nested_greenlet_in_processlet_after_greenlet_exit():
@@ -695,9 +696,10 @@ def test_exit_in_greenlet(greenlet_class, exception_class):
     (Greenlet, SystemExit), (lets.Processlet, lets.ProcessExit)
 ])
 def test_exit_recovery_from_nested_greenlet(greenlet_class, exception_class):
+    code = random.randrange(1, 65)
     def f():
         def ff():
-            raise SystemExit(42)
+            raise SystemExit(code)
         try:
             gevent.spawn(ff).get()
         except SystemExit:
@@ -711,7 +713,7 @@ def test_exit_recovery_from_nested_greenlet(greenlet_class, exception_class):
     with pytest.raises(exception_class) as excinfo:
         g.get()
     assert excinfo.type is exception_class
-    assert excinfo.value.args == (42,)
+    assert excinfo.value.args == (code,)
 
 
 def test_quietlet_system_exit():

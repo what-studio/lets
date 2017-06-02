@@ -664,25 +664,26 @@ def test_exit_in_greenlet(greenlet_class, exception_class):
 
 
 def test_exit_from_nested_greenlet_in_processlet_after_greenlet_exit():
-    def f():
+    def f(x):
         def ff():
-            raise SystemExit(42)
+            raise SystemExit(x)
         gevent.spawn(ff).get()
     # by Processlet - ok
-    g = lets.Processlet.spawn(f)
+    g = lets.Processlet.spawn(f, 1)
     with pytest.raises(lets.ProcessExit) as excinfo:
         g.get()
-    assert excinfo.value.args == (42,)
+    assert excinfo.value.args == (1,)
     # by Greenlet - ok
-    g = Greenlet.spawn(f)
+    g = Greenlet.spawn(f, 2)
     with pytest.raises(SystemExit) as excinfo:
         g.get()
-    assert excinfo.value.args == (42,)
-    # by Processlet - fail with SystemExit not ProcessExit.
-    g = lets.Processlet.spawn(f)
-    with pytest.raises(lets.ProcessExit) as excinfo:
+    assert excinfo.value.args == (2,)
+    # by Processlet - fail with SystemExit(2) not ProcessExit(3).
+    g = lets.Processlet.spawn(f, 3)
+    with pytest.raises(BaseException) as excinfo:
         g.get()
-    assert excinfo.value.args == (42,)
+    assert excinfo.value.args == (3,)
+    assert excinfo.type is lets.ProcessExit
 
 
 @pytest.mark.parametrize('greenlet_class, exception_class', [

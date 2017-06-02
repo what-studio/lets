@@ -650,39 +650,62 @@ def test_processlet_kill_kill():
         job.get()
 
 
-def test_processlet_exit():
+@pytest.mark.parametrize('greenlet_class, exception_class', [
+    (Greenlet, SystemExit), (lets.Processlet, lets.ProcessExit)
+])
+def test_exit_in_greenlet(greenlet_class, exception_class):
     def f():
         raise SystemExit(42)
-    p = lets.Processlet.spawn(f)
-    with pytest.raises(lets.ProcessExit) as excinfo:
-        p.get()
+    g = greenlet_class.spawn(f)
+    with pytest.raises(exception_class) as excinfo:
+        g.get()
+    assert excinfo.type is exception_class
     assert excinfo.value.args == (42,)
 
 
-def test_processlet_exit_from_nested_greenlet():
+def test_exit_from_nested_greenlet_in_processlet_after_greenlet_exit():
     def f():
-        def g():
+        def ff():
             raise SystemExit(42)
-        gevent.spawn(g).get()
-    p = lets.Processlet.spawn(f)
+        gevent.spawn(ff).get()
+    # by Processlet - ok
+    g = lets.Processlet.spawn(f)
     with pytest.raises(lets.ProcessExit) as excinfo:
-        p.get()
+        g.get()
+    assert excinfo.value.args == (42,)
+    # by Greenlet - ok
+    g = Greenlet.spawn(f)
+    with pytest.raises(SystemExit) as excinfo:
+        g.get()
+    assert excinfo.value.args == (42,)
+    # by Processlet - fail with SystemExit not ProcessExit.
+    g = lets.Processlet.spawn(f)
+    with pytest.raises(lets.ProcessExit) as excinfo:
+        g.get()
     assert excinfo.value.args == (42,)
 
 
-def test_processlet_catch_exit_from_nested_greenlet():
+@pytest.mark.parametrize('greenlet_class, exception_class', [
+    (Greenlet, SystemExit), (lets.Processlet, lets.ProcessExit)
+])
+def test_exit_recovery_from_nested_greenlet(greenlet_class, exception_class):
     def f():
-        def g():
+        def ff():
             raise SystemExit(42)
         try:
-            gevent.spawn(g).get()
-        except SystemExit as exc:
-            return exc.args[0]
+            gevent.spawn(ff).get()
+        except SystemExit:
+            # Not working.
+            return 'caught'
+        except:
+            return 'some error'
         else:
-            return None
-    p = lets.Processlet.spawn(f)
-    rv = p.get()
-    assert rv == 42
+            return 'no error'
+    g = greenlet_class.spawn(f)
+    with pytest.raises(exception_class) as excinfo:
+        g.get()
+    assert excinfo.type is exception_class
+    assert excinfo.value.args == (42,)
 
 
 def test_quietlet_system_exit():

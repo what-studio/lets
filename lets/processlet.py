@@ -246,6 +246,7 @@ class Processlet(gevent.Greenlet):
                     new_watcher.stop()
         except ProcessExit as exc:
             code = exc.code
+        print 'PARENT READY'
         # Collect the function result.
         if is_socket_readable(socket, 0):
             self._birth.wait()
@@ -254,6 +255,7 @@ class Processlet(gevent.Greenlet):
                 rv = _exited_with(rv.code)
         else:
             ok, rv = False, _exited_with(code)
+        print 'PARENT RETURN', ok, `rv`, code
         return ok, rv, code
 
     def _child(self, socket, run, args, kwargs):
@@ -273,6 +275,12 @@ class Processlet(gevent.Greenlet):
         # Spawn and ensure to be started the greenlet.
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         try:
+            greenlet.parent = gevent.hub.Hub(greenlet.parent.loop)
+            greenlet.parent.SYSTEM_ERROR = (KeyboardInterrupt, SystemError)
+        except:
+            import traceback
+            traceback.print_exc()
+        try:
             greenlet.join(0)  # Catch exceptions before blocking.
             gevent.spawn(self._watch_child_killers, socket, greenlet)
             rv = greenlet.get()  # Run the function.
@@ -283,6 +291,7 @@ class Processlet(gevent.Greenlet):
         else:
             ok, code = True, 0
         # Notify the result.
+        print 'CHILD DONE', ok, `rv`
         put(socket, (ok, rv))
         os._exit(code)
 

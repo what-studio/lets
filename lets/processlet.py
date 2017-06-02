@@ -116,7 +116,7 @@ def reset_signal_handlers(signos=SIGNAL_NUMBERS, exclude=()):
 
 def reset_gevent():
     gevent.reinit()
-    gevent.get_hub().destroy(destroy_loop=True)
+    gevent.get_hub().destroy(destroy_loop=True)  # Forget previous callbacks.
     gevent.get_hub(default=True)  # Here is necessary.
 
 
@@ -272,9 +272,9 @@ class Processlet(gevent.Greenlet):
         self._birth.set()
         # Spawn and ensure to be started the greenlet.
         greenlet = Quietlet.spawn(run, *args, **kwargs)
-        greenlet.join(0)
-        gevent.spawn(self._watch_child_killers, socket, greenlet)
         try:
+            greenlet.join(0)
+            gevent.spawn(self._watch_child_killers, socket, greenlet)
             # Run the function.
             rv = greenlet.get()
         except SystemExit as rv:

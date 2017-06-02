@@ -650,6 +650,17 @@ def test_processlet_kill_kill():
         job.get()
 
 
+def test_processlet_greenlet_in_processlet_exit():
+    def f():
+        def g():
+            raise SystemExit(42)
+        gevent.spawn(g).get()
+    p = lets.Processlet.spawn(f)
+    with pytest.raises(lets.ProcessExit) as excinfo:
+        p.get()
+    assert excinfo.value.args == (42,)
+
+
 def test_quietlet_system_exit():
     job = lets.Quietlet.spawn(sys.exit)
     gevent.spawn(gevent.sleep, 0.1).join()

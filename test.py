@@ -650,7 +650,16 @@ def test_processlet_kill_kill():
         job.get()
 
 
-def test_processlet_greenlet_in_processlet_exit():
+def test_processlet_exit():
+    def f():
+        raise SystemExit(42)
+    p = lets.Processlet.spawn(f)
+    with pytest.raises(lets.ProcessExit) as excinfo:
+        p.get()
+    assert excinfo.value.args == (42,)
+
+
+def test_processlet_exit_from_nested_greenlet():
     def f():
         def g():
             raise SystemExit(42)
@@ -659,6 +668,21 @@ def test_processlet_greenlet_in_processlet_exit():
     with pytest.raises(lets.ProcessExit) as excinfo:
         p.get()
     assert excinfo.value.args == (42,)
+
+
+def test_processlet_catch_exit_from_nested_greenlet():
+    def f():
+        def g():
+            raise SystemExit(42)
+        try:
+            gevent.spawn(g).get()
+        except SystemExit as exc:
+            return exc.args[0]
+        else:
+            return None
+    p = lets.Processlet.spawn(f)
+    rv = p.get()
+    assert rv == 42
 
 
 def test_quietlet_system_exit():

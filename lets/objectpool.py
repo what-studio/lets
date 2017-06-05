@@ -31,10 +31,10 @@ class ObjectReservation(object):
 class ObjectPool(object):
     """Greenlet-safe object pool."""
 
-    __slots__ = ('objects', 'size', 'function', 'args', 'kwargs',
+    __slots__ = ('objects', 'size', 'factory', 'destroy',
                  '_lock', '_queue', '_busy')
 
-    def __init__(self, size, function, *args, **kwargs):
+    def __init__(self, size, factory, destroy=None):
         if size is None:
             self._lock = gevent.lock.DummySemaphore()
         else:
@@ -43,13 +43,8 @@ class ObjectPool(object):
         self._busy = set()
         self.objects = set()
         self.size = size
-        self.function = function
-        self.args = args
-        self.kwargs = kwargs
-
-    def factory(self):
-        """The factory function."""
-        return self.function(*self.args, **self.kwargs)
+        self.factory = factory
+        self.destroy = destroy
 
     def available(self):
         """Whether the pool is available."""
@@ -91,10 +86,22 @@ class ObjectPool(object):
 
     def discard(self, obj):
         """Discards the object from the pool."""
+        if self.destroy is not None:
+            self.destroy(obj)
         self.objects.discard(obj)
         if obj in self._busy:
             self._busy.remove(obj)
             self._lock.release()
+
+    def clear(self):
+        """Discards all objects in the pool."""
+        while True:
+            try:
+                obj = self._queue.get(block=False)
+            except gevent.queue.Empty:
+                break
+            # assert obj not in self._busy
+            self.discard(obj)
 
     def reserve(self):
         """Makes a reservation context::

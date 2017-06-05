@@ -831,6 +831,38 @@ def test_object_pool_with_slow_behaviors():
     assert len(pool.objects) == 2
 
 
+def test_object_pool_clear():
+    events = []
+    pool = lets.ObjectPool(2, lambda: events.pop(), lambda e: e.set())
+    # clear all
+    _events = [Event(), Event()]
+    events.extend(_events)
+    with pool.reserve():
+        with pool.reserve():
+            pass
+    assert len(pool.objects) == 2
+    assert [e.is_set() for e in _events] == [False, False]
+    pool.clear()
+    assert len(pool.objects) == 0
+    assert [e.is_set() for e in _events] == [True, True]
+    # clear only available
+    _events = [Event(), Event()]
+    events.extend(_events)
+    with pool.reserve():
+        with pool.reserve():
+            pass
+        assert len(pool.objects) == 2
+        assert [e.is_set() for e in _events] == [False, False]
+        pool.clear()
+        assert len(pool.objects) == 1
+        assert [e.is_set() for e in _events] == [True, False]
+        pool.clear()
+        assert [e.is_set() for e in _events] == [True, False]
+    pool.clear()
+    assert len(pool.objects) == 0
+    assert [e.is_set() for e in _events] == [True, True]
+
+
 def test_job_queue():
     results = []
     def f(x, delay=0):

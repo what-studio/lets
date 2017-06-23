@@ -148,9 +148,11 @@ setup(
                  'Programming Language :: Python',
                  'Programming Language :: Python :: 2',
                  'Programming Language :: Python :: 2.7',
+                 'Programming Language :: Python :: 3',
+                 'Programming Language :: Python :: 3.6',
                  'Programming Language :: Python :: Implementation :: CPython',
                  'Topic :: Software Development'],
-    install_requires=['gevent>=1.1.0'],
+    install_requires=['gevent>=1.1.0', 'six'],
     tests_require=['psutil', 'pytest', 'pytest-rerunfailures'],
     test_suite='...',
 )

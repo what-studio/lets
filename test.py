@@ -309,6 +309,7 @@ def test_kill_processlet_group(proc):
         assert job.exit_code == 1
 
 
+@pytest.mark.flaky(reruns=10)
 def test_joinall_processlets():
     p1 = lets.Processlet.spawn(lambda: gevent.sleep(1))
     p2 = lets.Processlet.spawn(lambda: 0 / 0)
@@ -363,6 +364,7 @@ def test_process_pool_waits_worker_available(proc):
     assert len(proc.children()) == 0
 
 
+@pytest.mark.flaky(reruns=10)
 def test_process_pool_apply(proc):
     assert len(proc.children()) == 0
     pool = lets.ProcessPool(2)

@@ -13,6 +13,7 @@ import sys
 
 from gevent import GreenletExit, killall
 from gevent.event import Event
+import six
 
 
 __all__ = ['MasterGreenletExit', 'join_slaves', 'link_slave', 'spawn_slave',
@@ -74,7 +75,7 @@ def join_slaves(greenlets, timeout=None, exception=MasterGreenletExit):
             killall(active, exception, block=False)
             if timeout is None:
                 empty_event.wait()
-            raise exc_info[0], exc_info[1], exc_info[2]
+            six.reraise(*exc_info)
     finally:
         for greenlet in greenlets:
             greenlet.unlink(callback)

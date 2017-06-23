@@ -363,8 +363,8 @@ class Hole(object):
     def __getstate__(self):
         return (self.fileno, self.family, self.proto)
 
-    def __setstate__(self, (fileno, family, proto)):
-        self.fileno, self.family, self.proto = fileno, family, proto
+    def __setstate__(self, state):
+        self.fileno, self.family, self.proto = state
 
     def socket(self):
         """Gets the underlying socket safely."""

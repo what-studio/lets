@@ -372,7 +372,7 @@ def test_process_pool_apply(proc):
         pool.apply_async(busy_waiting, (0.2,))
         pool.apply_async(busy_waiting, (0.2,))
         pool.apply_async(busy_waiting, (0.2,))
-        with Timeout(0.5):
+        with Timeout(3):
             pool.join()
         assert len(proc.children()) == 2
     assert len(proc.children()) == 0

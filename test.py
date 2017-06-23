@@ -16,6 +16,7 @@ from gevent.lock import Semaphore
 from gevent.pool import Group
 from gevent.queue import Channel, Full
 import pytest
+from six.moves import range
 
 import lets
 from lets.quietlet import quiet
@@ -308,6 +309,7 @@ def test_kill_processlet_group(proc):
         assert job.exit_code == 1
 
 
+@pytest.mark.flaky(reruns=10)
 def test_joinall_processlets():
     p1 = lets.Processlet.spawn(lambda: gevent.sleep(1))
     p2 = lets.Processlet.spawn(lambda: 0 / 0)
@@ -324,7 +326,7 @@ def test_process_pool_recycles_child_process(proc):
     pool = lets.ProcessPool(1)
     with killing(pool):
         pids = set()
-        for x in xrange(10):
+        for x in range(10):
             pids.add(pool.spawn(os.getpid).get())
         assert len(pids) == 1
         assert next(iter(pids)) != os.getpid()
@@ -362,6 +364,7 @@ def test_process_pool_waits_worker_available(proc):
     assert len(proc.children()) == 0
 
 
+@pytest.mark.flaky(reruns=10)
 def test_process_pool_apply(proc):
     assert len(proc.children()) == 0
     pool = lets.ProcessPool(2)
@@ -369,7 +372,7 @@ def test_process_pool_apply(proc):
         pool.apply_async(busy_waiting, (0.2,))
         pool.apply_async(busy_waiting, (0.2,))
         pool.apply_async(busy_waiting, (0.2,))
-        with Timeout(0.5):
+        with Timeout(3):
             pool.join()
         assert len(proc.children()) == 2
     assert len(proc.children()) == 0

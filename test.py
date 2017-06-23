@@ -16,6 +16,7 @@ from gevent.lock import Semaphore
 from gevent.pool import Group
 from gevent.queue import Channel, Full
 import pytest
+from six.moves import range
 
 import lets
 from lets.quietlet import quiet
@@ -324,7 +325,7 @@ def test_process_pool_recycles_child_process(proc):
     pool = lets.ProcessPool(1)
     with killing(pool):
         pids = set()
-        for x in xrange(10):
+        for x in range(10):
             pids.add(pool.spawn(os.getpid).get())
         assert len(pids) == 1
         assert next(iter(pids)) != os.getpid()

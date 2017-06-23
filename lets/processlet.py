@@ -276,10 +276,10 @@ class Processlet(gevent.Greenlet):
             greenlet.join(0)  # Catch exceptions before blocking.
             gevent.spawn(self._watch_child_killers, socket, greenlet)
             rv = greenlet.get()  # Run the function.
-        except SystemExit as rv:
-            ok, code = False, rv.code
-        except BaseException as rv:
-            ok, code = False, 1
+        except SystemExit as e:
+            ok, code, rv = False, e.code, e
+        except BaseException as e:
+            ok, code, rv = False, 1, e
         else:
             ok, code = True, 0
         # Notify the result.

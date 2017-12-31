@@ -868,8 +868,8 @@ def test_object_pool_clear():
     assert [e.is_set() for e in _events] == [True, True]
 
 
-def test_object_pool_discard_after():
-    pool = lets.ObjectPool(1, object, discard_after=0.1)
+def test_object_pool_discard_later():
+    pool = lets.ObjectPool(1, object, discard_later=0.1)
 
     with pool.reserve() as a:
         pass
@@ -891,7 +891,7 @@ def test_object_pool_discard_after():
     assert c is d
 
 
-def test_object_pool_discard_after_with_destroy():
+def test_object_pool_discard_later_with_destroy():
     objects = set()
 
     def factory():
@@ -902,7 +902,7 @@ def test_object_pool_discard_after_with_destroy():
     def destroy(obj):
         objects.remove(obj)
 
-    pool = lets.ObjectPool(1, factory, destroy, discard_after=0.1)
+    pool = lets.ObjectPool(1, factory, destroy, discard_later=0.1)
 
     with pool.reserve() as a:
         pass
@@ -967,7 +967,7 @@ def test_object_pool_count():
     pool.discard(b2)
     assert count(pool) == 'total=0 free=0 busy=0'
 
-    sink_pool = lets.ObjectPool(1, object, discard_after=0.1)
+    sink_pool = lets.ObjectPool(1, object, discard_later=0.1)
     assert count(sink_pool) == 'total=0 free=0 busy=0'
 
     c = sink_pool.get(block=False)

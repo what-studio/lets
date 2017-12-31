@@ -875,7 +875,9 @@ def test_object_pool_discard_after():
         pass
     assert a is b
 
+    assert pool.count() == 1
     gevent.sleep(0.2)
+    assert pool.count() == 0
 
     with pool.reserve() as c:
         pass

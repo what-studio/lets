@@ -57,6 +57,10 @@ class ObjectPool(object):
         self.destroy = destroy
         self.discard_after = discard_after
 
+    def count(self):
+        """The number of objects in the pool."""
+        return len(self.objects)
+
     def available(self):
         """Whether the pool is available."""
         return not self._lock.locked()

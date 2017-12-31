@@ -930,6 +930,45 @@ def test_object_pool_discard_after_with_destroy():
     assert len(objects) == 1
 
 
+def test_object_pool_count():
+    pool = lets.ObjectPool(2, object)
+
+    def count():
+        counts = (pool.count(), pool.count_free(), pool.count_busy())
+        return 'total=%d free=%d busy=%d' % counts
+
+    assert count() == 'total=0 free=0 busy=0'
+
+    a = pool.get(block=False)
+    assert count() == 'total=1 free=0 busy=1'
+
+    b = pool.get(block=False)
+    assert count() == 'total=2 free=0 busy=2'
+
+    with pytest.raises(gevent.Timeout):
+        pool.get(block=False)
+    assert count() == 'total=2 free=0 busy=2'
+
+    pool.release(a)
+    assert count() == 'total=2 free=1 busy=1'
+
+    pool.release(a)  # again
+    assert count() == 'total=2 free=1 busy=1'
+
+    pool.release(b)
+    assert count() == 'total=2 free=2 busy=0'
+
+    pool.discard(a)
+    assert count() == 'total=1 free=1 busy=0'
+
+    b2 = pool.get(block=False)
+    assert b2 is b
+    assert count() == 'total=1 free=0 busy=1'
+
+    pool.discard(b2)
+    assert count() == 'total=0 free=0 busy=0'
+
+
 def test_job_queue():
     results = []
     def f(x, delay=0):

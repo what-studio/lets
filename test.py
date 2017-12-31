@@ -732,21 +732,23 @@ def test_object_pool():
     # getting object blocks
     pool = lets.ObjectPool(2, object)
     assert pool.available()
+    assert pool.count() == 0
     o1 = pool.get()
     assert pool.available()
+    assert pool.count() == 1
     o2 = pool.get()
     assert not pool.available()
     with pytest.raises(gevent.Timeout):
         pool.get(timeout=0.1)
     assert o1 is not o2
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
     # release and get again
     pool.release(o1)
     assert pool.available()
     o3 = pool.get()
     assert not pool.available()
     assert o1 is o3
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
     # discard
     pool.discard(o2)
     o4 = pool.get()
@@ -765,7 +767,7 @@ def test_object_pool_unlimited():
     o2 = pool.get()
     assert pool.available()
     assert o1 is not o2
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
     # release and get again
     pool.release(o1)
     o3 = pool.get()
@@ -773,7 +775,7 @@ def test_object_pool_unlimited():
     o4 = pool.get()
     assert o4 is not o1
     assert o4 is not o2
-    assert len(pool.objects) == 3
+    assert pool.count() == 3
     # discard
     pool.discard(o2)
     o5 = pool.get()
@@ -831,7 +833,7 @@ def test_object_pool_with_slow_behaviors():
         with pool.reserve():
             gevent.sleep(0.1)
     gevent.joinall([gevent.spawn(consume_obj_from_pool) for x in range(10)])
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
 
 
 def test_object_pool_clear():
@@ -843,10 +845,10 @@ def test_object_pool_clear():
     with pool.reserve():
         with pool.reserve():
             pass
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
     assert [e.is_set() for e in _events] == [False, False]
     pool.clear()
-    assert len(pool.objects) == 0
+    assert pool.count() == 0
     assert [e.is_set() for e in _events] == [True, True]
     # clear only available
     _events = [Event(), Event()]
@@ -854,15 +856,15 @@ def test_object_pool_clear():
     with pool.reserve():
         with pool.reserve():
             pass
-        assert len(pool.objects) == 2
+        assert pool.count() == 2
         assert [e.is_set() for e in _events] == [False, False]
         pool.clear()
-        assert len(pool.objects) == 1
+        assert pool.count() == 1
         assert [e.is_set() for e in _events] == [True, False]
         pool.clear()
         assert [e.is_set() for e in _events] == [True, False]
     pool.clear()
-    assert len(pool.objects) == 0
+    assert pool.count() == 0
     assert [e.is_set() for e in _events] == [True, True]
 
 

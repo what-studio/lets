@@ -40,10 +40,10 @@ class ObjectPool(object):
 
     """
 
-    __slots__ = ('objects', 'size', 'factory', 'destroy',
+    __slots__ = ('objects', 'size', 'factory', 'destroy', 'destroy_after',
                  '_lock', '_queue', '_busy')
 
-    def __init__(self, size, factory, destroy=None):
+    def __init__(self, size, factory, destroy=None, destroy_after=None):
         if size is None:
             self._lock = gevent.lock.DummySemaphore()
         else:
@@ -54,6 +54,7 @@ class ObjectPool(object):
         self.size = size
         self.factory = factory
         self.destroy = destroy
+        self.destroy_after = destroy_after
 
     def available(self):
         """Whether the pool is available."""
@@ -92,6 +93,9 @@ class ObjectPool(object):
         self._busy.remove(obj)
         self._queue.put(obj)
         self._lock.release()
+        if self.destroy_after is not None:
+            gevent.spawn_later(self.destroy_after,
+                               self._discard_if_not_busy, obj)
 
     def discard(self, obj):
         """Discards the object from the pool."""
@@ -101,6 +105,10 @@ class ObjectPool(object):
         if obj in self._busy:
             self._busy.remove(obj)
             self._lock.release()
+
+    def _discard_if_not_busy(self, obj):
+        if obj not in self._busy:
+            return self.discard(obj)
 
     def clear(self):
         """Discards all objects in the pool."""

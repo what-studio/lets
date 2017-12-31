@@ -866,6 +866,28 @@ def test_object_pool_clear():
     assert [e.is_set() for e in _events] == [True, True]
 
 
+def test_object_pool_destroy_after():
+    pool = lets.ObjectPool(1, object, destroy_after=0.1)
+
+    with pool.reserve() as a:
+        pass
+    with pool.reserve() as b:
+        pass
+    assert a is b
+
+    gevent.sleep(0.2)
+
+    with pool.reserve() as c:
+        pass
+    assert a is not c
+
+    with pool.reserve() as d:
+        gevent.sleep(0.2)
+    with pool.reserve() as e:
+        gevent.sleep(0.2)
+    assert c is d is e
+
+
 def test_job_queue():
     results = []
     def f(x, delay=0):

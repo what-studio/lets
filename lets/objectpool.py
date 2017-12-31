@@ -29,7 +29,16 @@ class ObjectReservation(object):
 
 
 class ObjectPool(object):
-    """Greenlet-safe object pool."""
+    """Greenlet-safe object pool.
+
+    :param size: the maximum number of objects.  ``None`` means that
+                 unlimited.
+    :param factory: the function which makes a new object.
+    :param destroy: (optional) the function which destroys an object.
+                    It will be used to discard an object from the pool by
+                    :meth:`discard`.
+
+    """
 
     __slots__ = ('objects', 'size', 'factory', 'destroy',
                  '_lock', '_queue', '_busy')

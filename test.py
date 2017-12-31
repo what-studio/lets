@@ -184,11 +184,11 @@ def test_processlet_without_start():
 
 
 def test_processlet_unref():
-    assert gevent.get_hub().loop.activecnt == 0
+    zero = gevent.get_hub().loop.activecnt
     job = lets.Processlet.spawn(os.getppid)
-    assert gevent.get_hub().loop.activecnt == 1
+    assert gevent.get_hub().loop.activecnt == zero + 1
     job.join()
-    assert gevent.get_hub().loop.activecnt == 0
+    assert gevent.get_hub().loop.activecnt == zero
 
 
 def test_processlet_start_twice():

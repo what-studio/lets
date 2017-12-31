@@ -112,7 +112,7 @@ class ObjectPool(object):
             self._lock.release()
 
     def _discard_if_not_busy(self, obj):
-        if obj not in self._busy:
+        if obj not in self._busy and obj in self.objects:
             return self.discard(obj)
 
     def clear(self):

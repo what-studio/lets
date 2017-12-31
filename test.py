@@ -866,8 +866,8 @@ def test_object_pool_clear():
     assert [e.is_set() for e in _events] == [True, True]
 
 
-def test_object_pool_destroy_after():
-    pool = lets.ObjectPool(1, object, destroy_after=0.1)
+def test_object_pool_discard_after():
+    pool = lets.ObjectPool(1, object, discard_after=0.1)
 
     with pool.reserve() as a:
         pass

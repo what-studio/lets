@@ -35,15 +35,16 @@ class ObjectPool(object):
                  unlimited.
     :param factory: the function which makes a new object.
     :param destroy: (optional) the function which destroys an object.
-                    It will be used to discard an object from the pool by
+                    It is used to discard an object from the pool by
                     :meth:`discard`.
-
+    :param discard_after: (optional) how many seconds to discard an object
+                          after it is released.
     """
 
-    __slots__ = ('objects', 'size', 'factory', 'destroy', 'destroy_after',
+    __slots__ = ('objects', 'size', 'factory', 'destroy', 'discard_after',
                  '_lock', '_queue', '_busy')
 
-    def __init__(self, size, factory, destroy=None, destroy_after=None):
+    def __init__(self, size, factory, destroy=None, discard_after=None):
         if size is None:
             self._lock = gevent.lock.DummySemaphore()
         else:
@@ -54,7 +55,7 @@ class ObjectPool(object):
         self.size = size
         self.factory = factory
         self.destroy = destroy
-        self.destroy_after = destroy_after
+        self.discard_after = discard_after
 
     def available(self):
         """Whether the pool is available."""
@@ -93,8 +94,8 @@ class ObjectPool(object):
         self._busy.remove(obj)
         self._queue.put(obj)
         self._lock.release()
-        if self.destroy_after is not None:
-            gevent.spawn_later(self.destroy_after,
+        if self.discard_after is not None:
+            gevent.spawn_later(self.discard_after,
                                self._discard_if_not_busy, obj)
 
     def discard(self, obj):

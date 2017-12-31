@@ -30,7 +30,7 @@ def pytest_runtest_teardown(item, nextitem):
     children = proc().children()
     for p in children:
         os.kill(p.pid, signal.SIGKILL)
-    assert not children
+    assert not proc().children()
 
 
 group_names = ['greenlet_group', 'process_group']

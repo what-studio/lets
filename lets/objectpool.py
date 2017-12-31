@@ -61,6 +61,14 @@ class ObjectPool(object):
         """The number of objects in the pool."""
         return len(self.objects)
 
+    def count_busy(self):
+        """The number of busy objects in the pool."""
+        return len(self._busy)
+
+    def count_free(self):
+        """The number of free objects in the pool."""
+        return len(self.objects) - len(self._busy)
+
     def available(self):
         """Whether the pool is available."""
         return not self._lock.locked()

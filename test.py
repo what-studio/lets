@@ -931,42 +931,53 @@ def test_object_pool_discard_after_with_destroy():
 
 
 def test_object_pool_count():
-    pool = lets.ObjectPool(2, object)
-
-    def count():
+    def count(pool):
         counts = (pool.count(), pool.count_free(), pool.count_busy())
         return 'total=%d free=%d busy=%d' % counts
 
-    assert count() == 'total=0 free=0 busy=0'
+    pool = lets.ObjectPool(2, object)
+    assert count(pool) == 'total=0 free=0 busy=0'
 
     a = pool.get(block=False)
-    assert count() == 'total=1 free=0 busy=1'
+    assert count(pool) == 'total=1 free=0 busy=1'
 
     b = pool.get(block=False)
-    assert count() == 'total=2 free=0 busy=2'
+    assert count(pool) == 'total=2 free=0 busy=2'
 
     with pytest.raises(gevent.Timeout):
         pool.get(block=False)
-    assert count() == 'total=2 free=0 busy=2'
+    assert count(pool) == 'total=2 free=0 busy=2'
 
     pool.release(a)
-    assert count() == 'total=2 free=1 busy=1'
+    assert count(pool) == 'total=2 free=1 busy=1'
 
     pool.release(a)  # again
-    assert count() == 'total=2 free=1 busy=1'
+    assert count(pool) == 'total=2 free=1 busy=1'
 
     pool.release(b)
-    assert count() == 'total=2 free=2 busy=0'
+    assert count(pool) == 'total=2 free=2 busy=0'
 
     pool.discard(a)
-    assert count() == 'total=1 free=1 busy=0'
+    assert count(pool) == 'total=1 free=1 busy=0'
 
     b2 = pool.get(block=False)
     assert b2 is b
-    assert count() == 'total=1 free=0 busy=1'
+    assert count(pool) == 'total=1 free=0 busy=1'
 
     pool.discard(b2)
-    assert count() == 'total=0 free=0 busy=0'
+    assert count(pool) == 'total=0 free=0 busy=0'
+
+    sink_pool = lets.ObjectPool(1, object, discard_after=0.1)
+    assert count(sink_pool) == 'total=0 free=0 busy=0'
+
+    c = sink_pool.get(block=False)
+    assert count(sink_pool) == 'total=1 free=0 busy=1'
+
+    sink_pool.release(c)
+    assert count(sink_pool) == 'total=1 free=1 busy=0'
+
+    gevent.sleep(0.2)
+    assert count(sink_pool) == 'total=0 free=0 busy=0'
 
 
 def test_job_queue():

@@ -107,8 +107,7 @@ class ObjectPool(object):
         self._queue.put(obj)
         self._lock.release()
         if self.discard_later is not None:
-            gevent.spawn_later(self.discard_later,
-                               self._discard_if_not_busy, obj)
+            gevent.spawn_later(self.discard_later, self._discard_if_free, obj)
 
     def discard(self, obj):
         """Discards the object from the pool."""
@@ -119,7 +118,7 @@ class ObjectPool(object):
             self._busy.remove(obj)
             self._lock.release()
 
-    def _discard_if_not_busy(self, obj):
+    def _discard_if_free(self, obj):
         if obj not in self._busy and obj in self.objects:
             return self.discard(obj)
 

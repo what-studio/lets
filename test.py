@@ -883,11 +883,49 @@ def test_object_pool_discard_after():
         pass
     assert a is not c
 
+    gevent.sleep(0.05)  # try to discard soon
     with pool.reserve() as d:
-        gevent.sleep(0.2)
-    with pool.reserve() as e:
-        gevent.sleep(0.2)
-    assert c is d is e
+        gevent.sleep(0.2)  # but busy
+    assert c is d
+
+
+def test_object_pool_discard_after_with_destroy():
+    objects = set()
+
+    def factory():
+        obj = object()
+        objects.add(obj)
+        return obj
+
+    def destroy(obj):
+        objects.remove(obj)
+
+    pool = lets.ObjectPool(1, factory, destroy, discard_after=0.1)
+
+    with pool.reserve() as a:
+        pass
+    with pool.reserve() as b:
+        pass
+    assert a is b
+    assert a in objects
+
+    assert pool.count() == 1
+    gevent.sleep(0.2)
+    assert pool.count() == 0
+    assert a not in objects
+
+    with pool.reserve() as c:
+        pass
+    assert a is not c
+    assert a not in objects
+    assert c in objects
+
+    gevent.sleep(0.05)  # try to discard soon
+    with pool.reserve() as d:
+        gevent.sleep(0.2)  # but busy
+    assert c is d
+    assert c in objects
+    assert len(objects) == 1
 
 
 def test_job_queue():

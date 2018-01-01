@@ -268,7 +268,8 @@ class Processlet(gevent.Greenlet):
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         # Register kill signal handler.
         if kill_signo:
-            killed = lambda s, f, g=greenlet: self._child_killed(socket, g, f)
+            killed = (lambda signo, frame, socket=socket, greenlet=greenlet:
+                      self._child_killed(socket, greenlet, frame))
             signal.signal(kill_signo, killed)
         # Notify birth.
         socket.send(b'\x01')

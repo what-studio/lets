@@ -258,22 +258,31 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, socket, run, args, kwargs):
         """The body of the child process."""
+        print 1
         kill_signo = getattr(self, '_kill_signo', None)
         # Reset environments.
+        print 2
         reset_signal_handlers(exclude=set([kill_signo] if kill_signo else []))
+        print 3
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
+        print 4
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
         # Spawn and ensure to be started the greenlet.
+        print 5
         greenlet = Quietlet.spawn(run, *args, **kwargs)
         # Register kill signal handler.
         if kill_signo:
+            print 6
             killed = (lambda signo, frame, socket=socket, greenlet=greenlet:
                       self._child_killed(socket, greenlet, frame))
             signal.signal(kill_signo, killed)
         # Notify birth.
+        print 7
         socket.send(b'\x01')
+        print 8
         self._birth.set()
+        print 9
         try:
             greenlet.join(0)  # Catch exceptions before blocking.
             gevent.spawn(self._watch_child_killers, socket, greenlet)

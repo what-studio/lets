@@ -2,6 +2,7 @@
 import os
 import signal
 
+import gevent
 from gevent.pool import Group
 import psutil
 import pytest
@@ -9,11 +10,27 @@ import pytest
 import lets
 
 
-def pytest_runtest_teardown(item):
+def pytest_addoption(parser):
+    parser.addoption('--lets-timeout', default=10, metavar='SECONDS',
+                     help='timeout for each lets test (default: 10 sec)')
+
+
+def pytest_runtest_setup(item):
+    lets_timeout = item.config.getoption('lets_timeout')
+    item.timeout = gevent.Timeout.start_new(float(lets_timeout))
+
+
+def pytest_runtest_teardown(item, nextitem):
+    try:
+        timeout = item.timeout
+    except AttributeError:
+        pass
+    else:
+        timeout.cancel()
     children = proc().children()
     for p in children:
         os.kill(p.pid, signal.SIGKILL)
-    assert not children
+    assert not proc().children()
 
 
 group_names = ['greenlet_group', 'process_group']

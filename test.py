@@ -184,11 +184,11 @@ def test_processlet_without_start():
 
 
 def test_processlet_unref():
-    assert gevent.get_hub().loop.activecnt == 0
+    zero = gevent.get_hub().loop.activecnt
     job = lets.Processlet.spawn(os.getppid)
-    assert gevent.get_hub().loop.activecnt == 1
+    assert gevent.get_hub().loop.activecnt == zero + 1
     job.join()
-    assert gevent.get_hub().loop.activecnt == 0
+    assert gevent.get_hub().loop.activecnt == zero
 
 
 def test_processlet_start_twice():
@@ -249,7 +249,6 @@ def test_kill_processlet(proc):
 
 
 def test_kill_processlet_busy(proc):
-    # without killing signal
     job = lets.Processlet.spawn(busy_waiting, 60)
     job.join(0)
     assert len(proc.children()) == 1
@@ -259,11 +258,13 @@ def test_kill_processlet_busy(proc):
     job.send(signal.SIGKILL)
     job.join()
     assert len(proc.children()) == 0
-    # with killing signal
+
+
+def test_kill_processlet_busy_with_kill_signo(proc):
     job = lets.Processlet.spawn(signal.SIGUSR1, busy_waiting, 60)
     job.join(0)
     assert len(proc.children()) == 1
-    job.kill(Killed)
+    job.kill(Killed, timeout=1)
     assert len(proc.children()) == 0
     with pytest.raises(Killed):
         job.get()
@@ -732,21 +733,23 @@ def test_object_pool():
     # getting object blocks
     pool = lets.ObjectPool(2, object)
     assert pool.available()
+    assert pool.count() == 0
     o1 = pool.get()
     assert pool.available()
+    assert pool.count() == 1
     o2 = pool.get()
     assert not pool.available()
     with pytest.raises(gevent.Timeout):
         pool.get(timeout=0.1)
     assert o1 is not o2
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
     # release and get again
     pool.release(o1)
     assert pool.available()
     o3 = pool.get()
     assert not pool.available()
     assert o1 is o3
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
     # discard
     pool.discard(o2)
     o4 = pool.get()
@@ -765,7 +768,7 @@ def test_object_pool_unlimited():
     o2 = pool.get()
     assert pool.available()
     assert o1 is not o2
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
     # release and get again
     pool.release(o1)
     o3 = pool.get()
@@ -773,7 +776,7 @@ def test_object_pool_unlimited():
     o4 = pool.get()
     assert o4 is not o1
     assert o4 is not o2
-    assert len(pool.objects) == 3
+    assert pool.count() == 3
     # discard
     pool.discard(o2)
     o5 = pool.get()
@@ -831,7 +834,7 @@ def test_object_pool_with_slow_behaviors():
         with pool.reserve():
             gevent.sleep(0.1)
     gevent.joinall([gevent.spawn(consume_obj_from_pool) for x in range(10)])
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
 
 
 def test_object_pool_clear():
@@ -843,10 +846,10 @@ def test_object_pool_clear():
     with pool.reserve():
         with pool.reserve():
             pass
-    assert len(pool.objects) == 2
+    assert pool.count() == 2
     assert [e.is_set() for e in _events] == [False, False]
     pool.clear()
-    assert len(pool.objects) == 0
+    assert pool.count() == 0
     assert [e.is_set() for e in _events] == [True, True]
     # clear only available
     _events = [Event(), Event()]
@@ -854,20 +857,20 @@ def test_object_pool_clear():
     with pool.reserve():
         with pool.reserve():
             pass
-        assert len(pool.objects) == 2
+        assert pool.count() == 2
         assert [e.is_set() for e in _events] == [False, False]
         pool.clear()
-        assert len(pool.objects) == 1
+        assert pool.count() == 1
         assert [e.is_set() for e in _events] == [True, False]
         pool.clear()
         assert [e.is_set() for e in _events] == [True, False]
     pool.clear()
-    assert len(pool.objects) == 0
+    assert pool.count() == 0
     assert [e.is_set() for e in _events] == [True, True]
 
 
-def test_object_pool_discard_after():
-    pool = lets.ObjectPool(1, object, discard_after=0.1)
+def test_object_pool_discard_later():
+    pool = lets.ObjectPool(1, object, discard_later=0.1)
 
     with pool.reserve() as a:
         pass
@@ -889,7 +892,7 @@ def test_object_pool_discard_after():
     assert c is d
 
 
-def test_object_pool_discard_after_with_destroy():
+def test_object_pool_discard_later_with_destroy():
     objects = set()
 
     def factory():
@@ -900,7 +903,7 @@ def test_object_pool_discard_after_with_destroy():
     def destroy(obj):
         objects.remove(obj)
 
-    pool = lets.ObjectPool(1, factory, destroy, discard_after=0.1)
+    pool = lets.ObjectPool(1, factory, destroy, discard_later=0.1)
 
     with pool.reserve() as a:
         pass
@@ -926,6 +929,56 @@ def test_object_pool_discard_after_with_destroy():
     assert c is d
     assert c in objects
     assert len(objects) == 1
+
+
+def test_object_pool_count():
+    def count(pool):
+        counts = (pool.count(), pool.count_free(), pool.count_busy())
+        return 'total=%d free=%d busy=%d' % counts
+
+    pool = lets.ObjectPool(2, object)
+    assert count(pool) == 'total=0 free=0 busy=0'
+
+    a = pool.get(block=False)
+    assert count(pool) == 'total=1 free=0 busy=1'
+
+    b = pool.get(block=False)
+    assert count(pool) == 'total=2 free=0 busy=2'
+
+    with pytest.raises(gevent.Timeout):
+        pool.get(block=False)
+    assert count(pool) == 'total=2 free=0 busy=2'
+
+    pool.release(a)
+    assert count(pool) == 'total=2 free=1 busy=1'
+
+    pool.release(a)  # again
+    assert count(pool) == 'total=2 free=1 busy=1'
+
+    pool.release(b)
+    assert count(pool) == 'total=2 free=2 busy=0'
+
+    pool.discard(a)
+    assert count(pool) == 'total=1 free=1 busy=0'
+
+    b2 = pool.get(block=False)
+    assert b2 is b
+    assert count(pool) == 'total=1 free=0 busy=1'
+
+    pool.discard(b2)
+    assert count(pool) == 'total=0 free=0 busy=0'
+
+    sink_pool = lets.ObjectPool(1, object, discard_later=0.1)
+    assert count(sink_pool) == 'total=0 free=0 busy=0'
+
+    c = sink_pool.get(block=False)
+    assert count(sink_pool) == 'total=1 free=0 busy=1'
+
+    sink_pool.release(c)
+    assert count(sink_pool) == 'total=1 free=1 busy=0'
+
+    gevent.sleep(0.2)
+    assert count(sink_pool) == 'total=0 free=0 busy=0'
 
 
 def test_job_queue():

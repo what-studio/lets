@@ -314,13 +314,13 @@ def test_kill_processlet_group(proc):
 
 @pytest.mark.flaky(reruns=10)
 def test_joinall_processlets():
-    p1 = lets.Processlet.spawn(lambda: gevent.sleep(1))
-    p2 = lets.Processlet.spawn(lambda: 0 / 0)
-    with pytest.raises(ZeroDivisionError):
-        gevent.joinall([p1, p2], raise_error=True)
-    assert not p1.ready()
-    assert p2.ready()
     with takes(1):
+        p1 = lets.Processlet.spawn(lambda: gevent.sleep(1))
+        p2 = lets.Processlet.spawn(lambda: 0 / 0)
+        with pytest.raises(ZeroDivisionError):
+            gevent.joinall([p1, p2], raise_error=True)
+        assert not p1.ready()
+        assert p2.ready()
         assert p1.get() is None
 
 

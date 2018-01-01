@@ -261,6 +261,8 @@ def test_kill_processlet_busy(proc):
 
 
 def test_kill_processlet_busy_with_kill_signo(proc):
+    import os
+    os.nice(100)
     job = lets.Processlet.spawn(signal.SIGUSR1, busy_waiting, 60)
     job.join(0)
     assert len(proc.children()) == 1

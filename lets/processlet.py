@@ -58,10 +58,10 @@ import gevent.event
 import gevent.local
 import gevent.pool
 import gevent.queue
+from gevent.monkey import get_original
 import gevent.select
 import gevent.signal
 import gevent.socket
-from gevent.socket import fromfd
 
 from lets.objectpool import ObjectPool
 from lets.quietlet import Quietlet
@@ -269,6 +269,7 @@ class Processlet(gevent.Greenlet):
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         print 4
+        fromfd = get_original('socket', 'fromfd')
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
         # Make a greenlet but don't start.  If the greenlet function has an
         # expensive logic, early-start will make birth notification fail.
@@ -282,7 +283,7 @@ class Processlet(gevent.Greenlet):
             signal.signal(kill_signo, killed)
         # Notify birth.
         print 7
-        socket.send(b'\x01')
+        socket.sendall(b'\x01')
         print 8
         self._birth.set()
         print 9
@@ -391,7 +392,8 @@ class Hole(object):
         hub_id = id(gevent.get_hub())
         if hub_id != getattr(self, '_hub_id', -1):
             self._hub_id = hub_id
-            self._socket = fromfd(self.fileno, self.family, self.proto)
+            self._socket = \
+                gevent.socket.fromfd(self.fileno, self.family, self.proto)
         return self._socket
 
     def put(self, value):

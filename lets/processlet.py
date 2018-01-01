@@ -58,6 +58,7 @@ import gevent.event
 import gevent.local
 import gevent.pool
 import gevent.queue
+from gevent.monkey import get_original
 import gevent.select
 import gevent.signal
 import gevent.socket
@@ -264,16 +265,19 @@ class Processlet(gevent.Greenlet):
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
-        # Spawn and ensure to be started the greenlet.
-        greenlet = Quietlet.spawn(run, *args, **kwargs)
+        # Make a greenlet but don't start yet.
+        greenlet = Quietlet(run, *args, **kwargs)
         # Register kill signal handler.
         if kill_signo:
             killed = (lambda signo, frame, socket=socket, greenlet=greenlet:
                       self._child_killed(socket, greenlet, frame))
             signal.signal(kill_signo, killed)
-        # Notify birth.
-        socket.send(b'\x01')
-        self._birth.set()
+        # Notify birth.  Use non-gevent socket to avoid gevent conflict.
+        _fromfd = get_original('socket', 'fromfd')
+        _socket = _fromfd(socket.fileno(), socket.family, socket.proto)
+        _socket.sendall(b'\x01')
+        # Run the greenlet.
+        greenlet.start()
         try:
             greenlet.join(0)  # Catch exceptions before blocking.
             gevent.spawn(self._watch_child_killers, socket, greenlet)

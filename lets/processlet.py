@@ -23,7 +23,7 @@
 
       def tictoc(delay=0.1):
           while True:
-              print '.'
+              print('.')
               gevent.sleep(delay)
 
       gevent.spawn(tictoc)

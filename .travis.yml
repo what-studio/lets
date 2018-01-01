@@ -2,16 +2,16 @@ language: python
 sudo: false
 python:
 - 2.7
-- 3.6
-- pypy-5.4.1
+# - 3.6
+# - pypy-5.4.1
 env:
   matrix:
   -
-  - GEVENT_VERSION=1.2.1
-  - GEVENT_VERSION=1.2.0
-  - GEVENT_VERSION=1.1.2
-  - GEVENT_VERSION=1.1.1
-  - GEVENT_VERSION=1.1.0
+  # - GEVENT_VERSION=1.2.1
+  # - GEVENT_VERSION=1.2.0
+  # - GEVENT_VERSION=1.1.2
+  # - GEVENT_VERSION=1.1.1
+  # - GEVENT_VERSION=1.1.0
 install:
 - pip install -U pytest
 - pip install coveralls

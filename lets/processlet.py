@@ -176,9 +176,7 @@ class Processlet(gevent.Greenlet):
 
     def send(self, signo, timeout=None):
         """Sends a signal to the child process."""
-        print 'WAIT BIRTH'
         self._birth.wait(timeout)
-        print 'SEND', signo
         os.kill(self.pid, signo)
 
     def _run(self, run, *args, **kwargs):
@@ -261,34 +259,23 @@ class Processlet(gevent.Greenlet):
 
     def _child(self, socket, run, args, kwargs):
         """The body of the child process."""
-        print 1
         kill_signo = getattr(self, '_kill_signo', None)
         # Reset environments.
-        print 2
         reset_signal_handlers(exclude=set([kill_signo] if kill_signo else []))
-        print 3
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
-        print 4
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
-        # Make a greenlet but don't start.  If the greenlet function has an
-        # expensive logic, early-start will make birth notification fail.
-        print 5
+        # Make a greenlet but don't start yet.
         greenlet = Quietlet(run, *args, **kwargs)
         # Register kill signal handler.
         if kill_signo:
-            print 6
             killed = (lambda signo, frame, socket=socket, greenlet=greenlet:
                       self._child_killed(socket, greenlet, frame))
             signal.signal(kill_signo, killed)
-        # Notify birth.
-        print 7
+        # Notify birth.  Use non-gevent socket to avoid gevent conflict.
         _fromfd = get_original('socket', 'fromfd')
         _socket = _fromfd(socket.fileno(), socket.family, socket.proto)
         _socket.sendall(b'\x01')
-        print 8
-        # self._birth.set()
-        print 9
         # Run the greenlet.
         greenlet.start()
         try:
@@ -310,14 +297,10 @@ class Processlet(gevent.Greenlet):
         """A signal handler on the child process to detect killing exceptions
         from the parent process.
         """
-        print 'CHILD KILLED'
         exc = get(socket)
-        print 'GOT', `exc`
         if greenlet.gr_frame in (None, frame):
             # The greenlet is busy.
-            print 'GREENLET BUSY'
             raise exc
-        print 'KILL GREENLET'
         greenlet.kill(exc, block=False)
 
     @staticmethod

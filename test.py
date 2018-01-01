@@ -264,7 +264,7 @@ def test_kill_processlet_busy_with_kill_signo(proc):
     job = lets.Processlet.spawn(signal.SIGUSR1, busy_waiting, 60)
     job.join(0)
     assert len(proc.children()) == 1
-    job.kill(Killed, timeout=1)
+    job.kill(Killed, timeout=60)
     assert len(proc.children()) == 0
     with pytest.raises(Killed):
         job.get()

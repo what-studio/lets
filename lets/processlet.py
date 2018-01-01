@@ -264,14 +264,15 @@ class Processlet(gevent.Greenlet):
         reset_gevent()
         # Reinit the socket because the hub has been destroyed.
         socket = fromfd(socket.fileno(), socket.family, socket.proto)
+        # Spawn and ensure to be started the greenlet.
+        greenlet = Quietlet.spawn(run, *args, **kwargs)
+        # Register kill signal handler.
         if kill_signo:
-            killed = lambda g, f: self._child_killed(socket, greenlet, f)
+            killed = lambda s, f, g=greenlet: self._child_killed(socket, g, f)
             signal.signal(kill_signo, killed)
         # Notify birth.
         socket.send(b'\x01')
         self._birth.set()
-        # Spawn and ensure to be started the greenlet.
-        greenlet = Quietlet.spawn(run, *args, **kwargs)
         try:
             greenlet.join(0)  # Catch exceptions before blocking.
             gevent.spawn(self._watch_child_killers, socket, greenlet)

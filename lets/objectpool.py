@@ -111,9 +111,9 @@ class ObjectPool(object):
 
     def discard(self, obj):
         """Discards the object from the pool."""
+        self.objects.discard(obj)
         if self.destroy is not None:
             self.destroy(obj)
-        self.objects.discard(obj)
         if obj in self._busy:
             self._busy.remove(obj)
             self._lock.release()

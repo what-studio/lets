@@ -55,3 +55,12 @@ def proc():
 def pipe():
     with lets.pipe() as (left, right):
         yield (left, right)
+
+
+@pytest.fixture
+def count_greenlets():
+    # calibrate
+    zero = gevent.get_hub().loop.activecnt
+    def f():
+        return gevent.get_hub().loop.activecnt - zero
+    return f

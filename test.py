@@ -183,12 +183,11 @@ def test_processlet_without_start():
         job.get(timeout=0.1)
 
 
-def test_processlet_unref():
-    zero = gevent.get_hub().loop.activecnt
+def test_processlet_unref(count_greenlets):
     job = lets.Processlet.spawn(os.getppid)
-    assert gevent.get_hub().loop.activecnt == zero + 1
+    assert count_greenlets() == 1
     job.join()
-    assert gevent.get_hub().loop.activecnt == zero
+    assert count_greenlets() == 0
 
 
 def test_processlet_start_twice():

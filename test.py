@@ -939,6 +939,51 @@ def test_object_pool_discard_immediately():
     assert pool.count() == 0
 
 
+def test_object_pool_as_just_factory():
+    objects = set()
+
+    def factory():
+        obj = object()
+        objects.add(obj)
+        return obj
+
+    def destroy(obj):
+        objects.remove(obj)
+
+    # Actually, ObjectPool with (size=None, discard_later=0) is not useful as
+    # a pool.  get() always succeeds, release() always destroys the object.
+    # The pool just looks like an object factory.
+    pool = lets.ObjectPool(None, factory, destroy, discard_later=0)
+
+    with pool.reserve() as a:
+        assert a in objects
+
+        with pool.reserve() as b:
+            assert a in objects
+            assert b in objects
+            assert a is not b
+
+            with pool.reserve() as c:
+                assert a in objects
+                assert b in objects
+                assert c in objects
+                assert a is not b
+                assert a is not c
+                assert b is not c
+
+            assert a in objects
+            assert b in objects
+            assert c not in objects
+
+        assert a in objects
+        assert b not in objects
+        assert c not in objects
+
+    assert a not in objects
+    assert b not in objects
+    assert c not in objects
+
+
 def test_object_pool_discard_later_with_slow_destroy():
     destroy_started = Event()
     destroy_ended = Event()
@@ -1035,6 +1080,49 @@ def test_object_pool_count():
 
     gevent.sleep(0.2)
     assert count(sink_pool) == 'total=0 free=0 busy=0'
+
+
+def test_object_pool_zero_size():
+    objects = set()
+
+    def factory():
+        obj = object()
+        objects.add(obj)
+        return obj
+
+    def destroy(obj):
+        objects.remove(obj)
+
+    pool = lets.ObjectPool(None, factory, destroy, discard_later=0)
+
+    with pool.reserve() as a:
+        assert a in objects
+
+        with pool.reserve() as b:
+            assert a in objects
+            assert b in objects
+            assert a is not b
+
+            with pool.reserve() as c:
+                assert a in objects
+                assert b in objects
+                assert c in objects
+                assert a is not b
+                assert a is not c
+                assert b is not c
+
+            assert a in objects
+            assert b in objects
+            assert c not in objects
+
+        assert a in objects
+        assert b not in objects
+        assert c not in objects
+
+    assert a not in objects
+    assert b not in objects
+    assert c not in objects
+
 
 
 def test_job_queue():

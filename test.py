@@ -965,7 +965,10 @@ def test_object_pool_discard_later_with_slow_destroy():
 
 
 def test_object_pool_discard_later_cancel_when_get(count_greenlets):
-    pool = lets.ObjectPool(1, object, lambda x: 0, discard_later=0.1)
+    def slow_destroy(obj):
+        gevent.sleep(1)
+
+    pool = lets.ObjectPool(1, object, slow_destroy, discard_later=0.1)
 
     assert count_greenlets() == 0
 

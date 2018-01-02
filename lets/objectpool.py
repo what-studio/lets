@@ -42,7 +42,7 @@ class ObjectPool(object):
     """
 
     __slots__ = ('objects', 'size', 'factory', 'destroy', 'discard_later',
-                 '_lock', '_queue', '_busy')
+                 '_lock', '_queue', '_busy', '_discard_greenlets')
 
     def __init__(self, size, factory, destroy=None, discard_later=None):
         if size is None:
@@ -56,6 +56,7 @@ class ObjectPool(object):
         self.factory = factory
         self.destroy = destroy
         self.discard_later = discard_later
+        self._discard_greenlets = {}
 
     def count(self):
         """The number of objects in the pool."""
@@ -96,6 +97,7 @@ class ObjectPool(object):
             if obj in self.objects:
                 # found
                 break
+        self._kill_discard(obj)
         self._busy.add(obj)
         return obj
 
@@ -103,20 +105,36 @@ class ObjectPool(object):
         """Releases the object to be usable by others."""
         if obj not in self.objects or obj not in self._busy:
             return
-
         self._busy.remove(obj)
         self._queue.put(obj)
         self._lock.release()
+        self._spawn_discard(obj)
 
+    def _spawn_discard(self, obj):
         if self.discard_later is None:
             return
-
         if self.discard_later <= 0:
             # discard immediately
             self.discard(obj)
         else:
             # discard some seconds later
-            gevent.spawn_later(self.discard_later, self._discard_if_free, obj)
+            assert obj not in self._discard_greenlets
+            f = self._scheduled_discard
+            g = gevent.spawn_later(self.discard_later, f, obj)
+            self._discard_greenlets[obj] = g
+
+    def _kill_discard(self, obj):
+        try:
+            g = self._discard_greenlets.pop(obj)
+        except KeyError:
+            pass
+        else:
+            g.kill(block=False)
+
+    def _scheduled_discard(self, obj):
+        self._discard_greenlets.pop(obj)
+        if obj not in self._busy and obj in self.objects:
+            return self.discard(obj)
 
     def discard(self, obj):
         """Discards the object from the pool."""
@@ -126,10 +144,6 @@ class ObjectPool(object):
         if obj in self._busy:
             self._busy.remove(obj)
             self._lock.release()
-
-    def _discard_if_free(self, obj):
-        if obj not in self._busy and obj in self.objects:
-            return self.discard(obj)
 
     def clear(self):
         """Discards all objects in the pool."""

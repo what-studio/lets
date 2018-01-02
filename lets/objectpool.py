@@ -103,10 +103,19 @@ class ObjectPool(object):
         """Releases the object to be usable by others."""
         if obj not in self.objects or obj not in self._busy:
             return
+
         self._busy.remove(obj)
         self._queue.put(obj)
         self._lock.release()
-        if self.discard_later is not None:
+
+        if self.discard_later is None:
+            return
+
+        if self.discard_later <= 0:
+            # discard immediately
+            self.discard(obj)
+        else:
+            # discard some seconds later
             gevent.spawn_later(self.discard_later, self._discard_if_free, obj)
 
     def discard(self, obj):

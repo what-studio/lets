@@ -931,6 +931,15 @@ def test_object_pool_discard_later_with_destroy():
     assert len(objects) == 1
 
 
+def test_object_pool_discard_immediately():
+    pool = lets.ObjectPool(None, object, discard_later=0)
+    assert pool.count() == 0
+    x = pool.get()
+    assert pool.count() == 1
+    pool.release(x)
+    assert pool.count() == 0
+
+
 def test_object_pool_count():
     def count(pool):
         counts = (pool.count(), pool.count_free(), pool.count_busy())

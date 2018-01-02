@@ -939,6 +939,31 @@ def test_object_pool_discard_immediately():
     assert pool.count() == 0
 
 
+def test_object_pool_discard_later_with_slow_destroy():
+    destroy_started = Event()
+    destroy_ended = Event()
+
+    def slow_destroy(obj):
+        destroy_started.set()
+        gevent.sleep(10)
+        destroy_ended.set()
+
+    pool = lets.ObjectPool(1, object, slow_destroy, discard_later=0.1)
+
+    with pool.reserve() as a:
+        pass
+
+    destroy_started.wait()
+    assert destroy_started.is_set()
+    with pool.reserve() as b:
+        pass
+    # 'a' is still being destroyed.
+    assert not destroy_ended.is_set()
+
+    # 'b' should not be destroying 'a'.
+    assert a is not b
+
+
 def test_object_pool_count():
     def count(pool):
         counts = (pool.count(), pool.count_free(), pool.count_busy())

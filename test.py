@@ -964,6 +964,26 @@ def test_object_pool_discard_later_with_slow_destroy():
     assert a is not b
 
 
+def test_object_pool_discard_later_cancel_when_get(count_greenlets):
+    pool = lets.ObjectPool(1, object, lambda x: 0, discard_later=0.1)
+
+    assert count_greenlets() == 0
+
+    with pool.reserve() as a:
+        pass
+
+    # reserve discard() in 0.1 sec
+    assert count_greenlets() == 1
+
+    with pool.reserve() as b:
+        # reserved discard() is canceled
+        assert count_greenlets() == 0
+        assert a is b
+
+    # reserve discard() in 0.1 sec again
+    assert count_greenlets() == 1
+
+
 def test_object_pool_count():
     def count(pool):
         counts = (pool.count(), pool.count_free(), pool.count_busy())

@@ -7,8 +7,11 @@
    :license: BSD, see LICENSE for more details.
 
 """
+import sys
+
 import gevent.lock
 import gevent.queue
+from six import reraise
 
 
 __all__ = ['ObjectPool']
@@ -91,7 +94,12 @@ class ObjectPool(object):
                 obj = self._queue.get(block=False)
             except gevent.queue.Empty:
                 # create new object
-                obj = self.factory()
+                try:
+                    obj = self.factory()
+                except:
+                    exc_info = sys.exc_info()
+                    self._lock.release()
+                    reraise(*exc_info)
                 self.objects.add(obj)
                 break
             if obj in self.objects:

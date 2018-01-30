@@ -1039,8 +1039,9 @@ def test_object_pool_deadlock():
     with pytest.raises(ZeroDivisionError):
         pool.get()
 
-    with gevent.Timeout(1, AssertionError('deadlock detected')):
-        pool.get()
+    with pytest.raises(ZeroDivisionError):
+        with gevent.Timeout(1, AssertionError('deadlock detected')):
+            pool.get()
 
 
 def test_object_pool_count():

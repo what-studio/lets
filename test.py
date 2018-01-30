@@ -1032,6 +1032,17 @@ def test_object_pool_discard_later_cancel_when_get(count_greenlets):
     assert count_greenlets() == 1
 
 
+def test_object_pool_deadlock():
+    zero_div = lambda: 0 / 0
+    pool = lets.ObjectPool(1, zero_div)
+
+    with pytest.raises(ZeroDivisionError):
+        pool.get()
+
+    with gevent.Timeout(1, AssertionError('deadlock detected')):
+        pool.get()
+
+
 def test_object_pool_count():
     def count(pool):
         counts = (pool.count(), pool.count_free(), pool.count_busy())

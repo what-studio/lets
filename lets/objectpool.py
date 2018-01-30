@@ -100,8 +100,9 @@ class ObjectPool(object):
                     exc_info = sys.exc_info()
                     self._lock.release()
                     reraise(*exc_info)
-                self.objects.add(obj)
-                break
+                else:
+                    self.objects.add(obj)
+                    break
             if obj in self.objects:
                 # found
                 break
